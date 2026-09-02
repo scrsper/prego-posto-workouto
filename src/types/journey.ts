@@ -93,10 +93,21 @@ export type SafetyEligibility =
   | { kind: 'trimester'; trimester: 1 | 2 | 3 }
   | { kind: 'postpartum_week_range'; minWeek: number; maxWeek: number | null };
 
+/**
+ * Tracks whether a piece of safety-relevant content has been signed off by
+ * a certified pre/postnatal fitness specialist or pelvic floor physical
+ * therapist. Every entry in src/data/exercises.ts and src/data/articles.ts
+ * currently ships as 'needs_clinical_review' — see CONTENT_REVIEW_CHECKLIST.md
+ * at the project root. Do not flip an entry to 'clinically_reviewed' without
+ * a real reviewer having actually looked at it.
+ */
+export type ContentReviewStatus = 'needs_clinical_review' | 'clinically_reviewed';
+
 export interface Exercise {
   id: string;
   name: string;
   isPremium: boolean;
+  contentReviewStatus: ContentReviewStatus;
   bodyVariant: BodyVariant;
   primaryMuscles: MuscleGroupId[];
   secondaryMuscles: MuscleGroupId[];
@@ -124,4 +135,5 @@ export interface Article {
   body: string;
   appliesTo: 'prenatal' | 'postpartum' | 'both';
   isPremium: boolean;
+  contentReviewStatus: ContentReviewStatus;
 }

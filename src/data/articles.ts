@@ -15,6 +15,7 @@ export const ARTICLES: Article[] = [
       'or modify. Always listen to your body and your care provider over any general guidance here.',
     appliesTo: 'both',
     isPremium: false,
+    contentReviewStatus: 'needs_clinical_review',
   },
   {
     id: 'core-changes-in-pregnancy',
@@ -26,6 +27,7 @@ export const ARTICLES: Article[] = [
       'pressure (like coning or doming) support this transition better than traditional crunches.',
     appliesTo: 'prenatal',
     isPremium: false,
+    contentReviewStatus: 'needs_clinical_review',
   },
   {
     id: 'pelvic-floor-101',
@@ -37,6 +39,7 @@ export const ARTICLES: Article[] = [
       'affect its strength and coordination. Gentle activation and full relaxation are both part of a healthy pelvic floor.',
     appliesTo: 'both',
     isPremium: false,
+    contentReviewStatus: 'needs_clinical_review',
   },
   {
     id: 'returning-to-exercise-postpartum',
@@ -49,6 +52,7 @@ export const ARTICLES: Article[] = [
       'unlocking more intense programs for exactly this reason.',
     appliesTo: 'postpartum',
     isPremium: false,
+    contentReviewStatus: 'needs_clinical_review',
   },
   {
     id: 'csection-recovery-basics',
@@ -60,6 +64,7 @@ export const ARTICLES: Article[] = [
       'the incision is fully healed and your provider has cleared you.',
     appliesTo: 'postpartum',
     isPremium: false,
+    contentReviewStatus: 'needs_clinical_review',
   },
   {
     id: 'diastasis-recti-explained',
@@ -71,6 +76,7 @@ export const ARTICLES: Article[] = [
       'which is why premium personalized tracks branch by severity rather than offering one generic program.',
     appliesTo: 'postpartum',
     isPremium: true,
+    contentReviewStatus: 'needs_clinical_review',
   },
   {
     id: 'multiples-pregnancy-considerations',
@@ -82,6 +88,7 @@ export const ARTICLES: Article[] = [
       'in this app favor conservative loading and earlier rest breaks.',
     appliesTo: 'prenatal',
     isPremium: true,
+    contentReviewStatus: 'needs_clinical_review',
   },
 ];
 

@@ -164,7 +164,12 @@ product with quantity 1, since that still auto-renews unless cancelled.
 ## Known gaps / next steps
 
 - Real commissioned anatomical illustrations (see above).
-- Clinical review of all safety/exercise/article content (see above).
+- Clinical review of all safety/exercise/article content (see above, and
+  work through `CONTENT_REVIEW_CHECKLIST.md` at the project root). Every
+  entry in `exercises.ts`/`articles.ts` carries a `contentReviewStatus:
+  'needs_clinical_review'` field until a named reviewer has actually
+  checked it off. Running the app in dev mode (`__DEV__`) shows a red
+  banner and logs a console warning as a standing reminder of this.
 - RevenueCat integration (currently mocked locally).
 - Cloud sync (Supabase/Firebase) for cross-device Journey history — the
   Zustand store's `partialize`d shape is already the natural sync payload.
