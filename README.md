@@ -27,18 +27,54 @@ npm install
 npm run ios      # or: npm run android / npm run web
 ```
 
-This sandboxed build environment could not reach `api.expo.dev` /
-`reactnative.directory` (network policy), so `expo install`/`expo-doctor`
-network checks and a device/simulator run were not possible here. What *was*
-verified in this environment:
+### What's been verified, and where
+
+This has been built and iterated in a sandboxed Linux container with **no
+Xcode, no iOS Simulator, no Android SDK/emulator, and no physical device** —
+and no route to `api.expo.dev` / `reactnative.directory` either (outbound
+network policy). That rules out an actual on-device run from this
+environment, full stop. What *was* verified here, using `EXPO_OFFLINE=1` to
+get past the network policy for the checks that support it:
 
 - `npx tsc --noEmit` — clean, no type errors.
-- `npx expo export --platform web` — the full app (1,392 modules, including
-  every screen, the SVG rig, reanimated worklets, and navigation) bundles
+- `npx expo export --platform web` — the full app (1,346+ modules, every
+  screen, the SVG rig, reanimated worklets, and navigation) bundles
   successfully.
+- `npx expo install --check` (offline mode) — flagged six dependencies
+  (`@react-native-async-storage/async-storage`, `react-native-gesture-handler`,
+  `react-native-reanimated`, `react-native-safe-area-context`,
+  `react-native-screens`, `react-native-svg`) that had drifted ahead of the
+  versions this Expo SDK actually bundles/tests against, because they were
+  originally installed with plain `npm install` rather than `expo install`.
+  Pinned all six back to the expected versions.
+- `npx expo-doctor` — found and fixed one real issue: `react-native-worklets`
+  (a required peer of `react-native-reanimated` v4, and a native module that
+  needs direct-dependency autolinking) was only present transitively, not as
+  a direct `package.json` dependency. Added it explicitly. The only two
+  remaining `expo-doctor` failures are its config-schema and
+  React-Native-Directory checks, both of which call out to the same blocked
+  hosts above — not project issues, just unreachable from here.
+- Reviewed `AnatomicalFigure.tsx` specifically for New Architecture/
+  Reanimated v4 correctness (this was the one component called out for
+  extra scrutiny). Found and fixed one real bug this way: the infinite
+  `withRepeat(..., -1, ...)` pulse animation had no cleanup, so navigating
+  away from an exercise screen (unmounting the component) would leave it
+  running on the UI thread indefinitely — added `cancelAnimation()` in the
+  effect's cleanup. Everything else (worklet auto-detection via the babel
+  plugin, `useAnimatedProps` on `Animated.createAnimatedComponent(Ellipse/Rect)`,
+  shared-value typing) checked out against current Reanimated docs, but this
+  is a static read, not a runtime one.
 
-Before shipping, run the app on an iOS simulator/device and click through the
-flows below — that hasn't been done yet.
+**What's still unverified, because it genuinely requires hardware/tooling
+this sandbox doesn't have**: actually launching the app on an iOS
+simulator or device, confirming the muscle-pulse animation renders and
+performs correctly on Fabric (native `react-native-svg` + Reanimated
+rendering can differ meaningfully from the web bundle's DOM-based SVG
+shim, which is a real gap the web-bundle check above cannot close),
+navigation gesture behavior, and general on-device feel. If you're picking
+this up on a Mac: `npm install && npx expo run:ios` (or open in Expo Go /
+a dev client) is the next step, and the exercise detail screens
+(`ExerciseDetailScreen`) are the highest-value place to look first.
 
 ## Where things live
 
@@ -163,6 +199,10 @@ product with quantity 1, since that still auto-renews unless cancelled.
 
 ## Known gaps / next steps
 
+- **An actual on-device/simulator run.** See "What's been verified, and
+  where" above — this has never been launched on a real iOS device,
+  simulator, or Android emulator. Do this before shipping, with particular
+  attention to `AnatomicalFigure.tsx`'s pulse animation.
 - Real commissioned anatomical illustrations (see above).
 - Clinical review of all safety/exercise/article content (see above, and
   work through `CONTENT_REVIEW_CHECKLIST.md` at the project root). Every

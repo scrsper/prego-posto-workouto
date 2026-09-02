@@ -3,6 +3,7 @@ import { View, StyleSheet } from 'react-native';
 import Svg, { Ellipse, G, Line, Rect } from 'react-native-svg';
 import Animated, {
   Easing,
+  cancelAnimation,
   useAnimatedProps,
   useSharedValue,
   withRepeat,
@@ -137,6 +138,13 @@ export function AnatomicalFigure({
       -1,
       true
     );
+    // withRepeat(..., -1, ...) runs forever on the UI thread until
+    // explicitly cancelled — without this, navigating away from an
+    // exercise screen (which unmounts this component, e.g. via React
+    // Navigation's default stack behavior) would leave the pulse animation
+    // ticking in the background, wasting battery. Only visible as an
+    // on-device perf issue, not in a web bundle.
+    return () => cancelAnimation(pulseProgress);
   }, [repTempoSeconds, highlightedMuscles.length, pulseProgress]);
 
   const scale = size / FIGURE_VIEW_BOX.width;
