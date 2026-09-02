@@ -114,16 +114,52 @@ erector spinae.
 
 ## Monetization
 
-`src/premium/entitlements.ts` implements the recommended pausable,
-Journey-linked model: `$9.99/mo` bound to one Journey (`boundJourneyId`),
-auto-paused (`isPaused`) when that Journey archives, and resumable with one
-tap for the next Journey — plus a `full_journey_pass` one-time-purchase
-alternative. `mockPurchase`/`mockCancel` in that file are the integration
-seam for RevenueCat (`react-native-purchases`): replace them with real
-purchase calls, and drive `EntitlementState` from RevenueCat's
-`CustomerInfo` webhook/listener instead of local mutation. The ~85/15
-free/premium split from the spec is reflected in `isPremium` flags across
-`src/data/exercises.ts` and `src/data/articles.ts`.
+**This was reworked from an earlier "pausable subscription" design that
+turned out not to be implementable.** StoreKit gives no developer API to
+pause and later auto-resume billing on an auto-renewable subscription —
+only the subscriber can cancel it, and Apple only supports discounts/
+promotional offers on top of an existing subscription, not a true pause.
+See the long comment at the top of `src/premium/entitlements.ts` for the
+full reasoning.
+
+The model now has two independent, honestly-modeled entitlement sources:
+
+- **Full Journey Pass — $59.99, one-time, non-renewing (primary/default).**
+  Scoped to a specific Journey id (`entitlement.journeyPassIds`). Never
+  expires, never bills again, needs no pause logic because it's already
+  scoped to one Journey — buying it again for the next Journey is just
+  another (separate) purchase.
+- **Monthly subscription — $9.99/mo, auto-renewing (secondary/opt-in).**
+  A plain `subscriptionActive` boolean mirroring RevenueCat's entitlement
+  state, not Journey-scoped (Apple has no concept of that). It unlocks
+  premium for whichever Journey is currently active, keeps billing after a
+  Journey archives unless the subscriber cancels it themselves, and
+  `PaywallScreen` says so explicitly and links out to iOS's subscription
+  management screen (`itms-apps://apps.apple.com/account/subscriptions`) —
+  there is no in-app "cancel" button because there is no API for one.
+- **Renewal, not auto-resume.** `needsRenewalPrompt()` detects when a
+  returning purchaser's new Journey isn't covered by either a pass or an
+  active subscription, and `NewJourneyScreen` routes straight to the
+  Paywall in that case (`isRenewal` framing) instead of silently trying to
+  resume something that can't be resumed. For an active subscriber, this is
+  where you'd offer a RevenueCat promotional offer instead of a fresh
+  purchase flow.
+
+`mockPurchaseJourneyPass` / `mockActivateSubscription` /
+`mockDeactivateSubscription` in `entitlements.ts` are the integration seam
+for RevenueCat (`react-native-purchases`): replace them with real purchase
+calls, and drive `EntitlementState` from RevenueCat's `CustomerInfo`
+listener instead of local mutation. The ~85/15 free/premium split from the
+spec is reflected in `isPremium` flags across `src/data/exercises.ts` and
+`src/data/articles.ts`.
+
+**App Store Connect setup**: this needs **two separate IAP products** —
+a non-renewing subscription (or non-consumable, if you'd rather it be a
+literal one-time unlock with no product-level "duration") for the Journey
+Pass, and the existing auto-renewable subscription product for the monthly
+plan. They are different product types in App Store Connect and are not
+interchangeable — don't try to model the Journey Pass as an auto-renewable
+product with quantity 1, since that still auto-renews unless cancelled.
 
 ## Known gaps / next steps
 

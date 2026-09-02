@@ -14,11 +14,9 @@ import { isJourneyPastEnd } from '../utils/pregnancyDates';
 import {
   type EntitlementState,
   initialEntitlementState,
-  mockCancel,
-  mockPurchase,
-  pauseEntitlementOnJourneyArchive,
-  resumeEntitlementForNewJourney,
-  type SubscriptionPlan,
+  mockActivateSubscription,
+  mockDeactivateSubscription,
+  mockPurchaseJourneyPass,
 } from '../premium/entitlements';
 
 function generateId(): string {
@@ -62,9 +60,9 @@ interface JourneyStoreState {
   endContraction: (sessionId: string) => void;
   endContractionSession: (sessionId: string) => void;
 
-  purchasePremium: (plan: Exclude<SubscriptionPlan, 'none'>, journeyId: string) => void;
-  cancelPremium: () => void;
-  resumePremiumForActiveJourney: () => void;
+  purchaseJourneyPass: (journeyId: string) => void;
+  activateSubscription: () => void;
+  deactivateSubscription: () => void;
 
   activeJourney: () => Journey | null;
   archivedJourneys: () => Journey[];
@@ -98,15 +96,25 @@ export const useJourneyStore = create<JourneyStoreState>()(
           archivedAt: null,
           displayName: displayName ?? `Journey started ${new Date().toLocaleDateString()}`,
         };
+        // Note: no entitlement mutation here. A Journey Pass is scoped to
+        // the Journey it was bought for and never carries over; an active
+        // subscription (not Journey-scoped) simply keeps covering whatever
+        // Journey is active, with no action needed. See
+        // src/premium/entitlements.ts for the full explanation and
+        // `needsRenewalPrompt` for detecting when to offer renewal.
         set((state) => ({
           journeys: [...state.journeys, journey],
           activeJourneyId: id,
-          entitlement: resumeEntitlementForNewJourney(state.entitlement, id),
         }));
         return id;
       },
 
       archiveJourney: (journeyId) => {
+        // Note: no entitlement mutation here — a subscription cannot be
+        // paused programmatically (see entitlements.ts). If the user has
+        // an active subscription, the UI is responsible for reminding them
+        // to cancel it themselves; a Journey Pass simply stops mattering
+        // once its Journey is archived (still valid if they look back).
         set((state) => ({
           journeys: state.journeys.map((j) =>
             j.id === journeyId
@@ -114,7 +122,6 @@ export const useJourneyStore = create<JourneyStoreState>()(
               : j
           ),
           activeJourneyId: state.activeJourneyId === journeyId ? null : state.activeJourneyId,
-          entitlement: pauseEntitlementOnJourneyArchive(state.entitlement, journeyId),
         }));
       },
 
@@ -238,20 +245,16 @@ export const useJourneyStore = create<JourneyStoreState>()(
         }));
       },
 
-      purchasePremium: (plan, journeyId) => {
-        set((state) => ({ entitlement: mockPurchase(state.entitlement, plan, journeyId) }));
+      purchaseJourneyPass: (journeyId) => {
+        set((state) => ({ entitlement: mockPurchaseJourneyPass(state.entitlement, journeyId) }));
       },
 
-      cancelPremium: () => {
-        set((state) => ({ entitlement: mockCancel(state.entitlement) }));
+      activateSubscription: () => {
+        set((state) => ({ entitlement: mockActivateSubscription(state.entitlement) }));
       },
 
-      resumePremiumForActiveJourney: () => {
-        const active = get().activeJourney();
-        if (!active) return;
-        set((state) => ({
-          entitlement: resumeEntitlementForNewJourney(state.entitlement, active.id),
-        }));
+      deactivateSubscription: () => {
+        set((state) => ({ entitlement: mockDeactivateSubscription(state.entitlement) }));
       },
 
       activeJourney: () => {

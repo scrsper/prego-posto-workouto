@@ -110,7 +110,11 @@ export function SettingsScreen({ navigation }: MainTabScreenProps<'Settings'>) {
         <SecondaryButton label="Journey history" onPress={() => navigation.navigate('JourneyArchive')} />
         <SecondaryButton label="Manage premium" onPress={() => navigation.navigate('Paywall')} />
         <Text style={{ ...typography.caption, color: colors.textMuted }}>
-          Plan: {entitlement.plan} {entitlement.isPaused ? '(paused)' : ''}
+          {activeJourney && entitlement.journeyPassIds.includes(activeJourney.id)
+            ? 'Plan: Journey Pass (this Journey)'
+            : entitlement.subscriptionActive
+              ? 'Plan: Monthly subscription (active)'
+              : 'Plan: Free'}
         </Text>
       </Card>
 

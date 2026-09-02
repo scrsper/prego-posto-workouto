@@ -3,6 +3,7 @@ import { Alert, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 import { useJourneyStore } from '../state/journeyStore';
+import { needsRenewalPrompt } from '../premium/entitlements';
 import { Card, PrimaryButton, ScreenContainer, SecondaryButton } from '../components/Basics';
 import { colors, radii, spacing, typography } from '../theme/theme';
 import type { ConceptionMode } from '../types/journey';
@@ -16,10 +17,26 @@ export function NewJourneyScreen({ navigation }: Props) {
   const [day, setDay] = useState('');
   const [year, setYear] = useState('');
 
+  /**
+   * A Journey Pass never carries over (it's scoped to the Journey it was
+   * bought for), and we can't detect or resurrect a subscription
+   * automatically — so instead of a silent auto-resume, offer premium
+   * again right after a returning purchaser starts a new Journey.
+   */
+  function finishJourneyCreation(newJourneyId: string) {
+    const state = useJourneyStore.getState();
+    const newJourney = state.journeys.find((j) => j.id === newJourneyId) ?? null;
+    if (newJourney && needsRenewalPrompt(state.entitlement, newJourney)) {
+      navigation.reset({ index: 1, routes: [{ name: 'MainTabs' }, { name: 'Paywall' }] });
+    } else {
+      navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
+    }
+  }
+
   function handleContinue() {
     if (mode === 'trying_to_conceive') {
-      startNewJourney({ conceptionMode: 'trying_to_conceive', estimatedDueDate: null });
-      navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
+      const newId = startNewJourney({ conceptionMode: 'trying_to_conceive', estimatedDueDate: null });
+      finishJourneyCreation(newId);
       return;
     }
 
@@ -35,8 +52,8 @@ export function NewJourneyScreen({ navigation }: Props) {
       Alert.alert('That date doesn’t look right', 'Please double-check the date and try again.');
       return;
     }
-    startNewJourney({ conceptionMode: 'due_date', estimatedDueDate: dueDate.toISOString() });
-    navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
+    const newId = startNewJourney({ conceptionMode: 'due_date', estimatedDueDate: dueDate.toISOString() });
+    finishJourneyCreation(newId);
   }
 
   return (

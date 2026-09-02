@@ -1,86 +1,109 @@
 /**
  * Entitlement / paywall logic.
  *
- * Production integration point: replace `mockPurchase` / `mockRestore` below
- * with RevenueCat (`react-native-purchases`). RevenueCat should own the
- * source of truth for subscription state; this module only encodes the
+ * Production integration point: replace `mockPurchaseJourneyPass` /
+ * `mockActivateSubscription` / `mockDeactivateSubscription` below with
+ * RevenueCat (`react-native-purchases`). RevenueCat should own the source of
+ * truth for purchase/subscription state; this module only encodes the
  * *rules* of how that state maps to in-app access, so the rules survive the
  * swap from mock to real billing.
  *
- * Core rule (see PRD "Recommended Monetization Model"): the $9.99/mo plan is
- * bound to a single Journey. When that Journey archives, the plan is placed
- * in `paused` state (billing should stop server-side via RevenueCat/App
- * Store subscription pause or a scheduled cancel-and-refund-prorated flow)
- * and access reverts to free-tier — but only for premium *features*. Free
- * data (history, red-flag guidance, journey timeline) is never gated.
+ * IMPORTANT — why this model looks the way it does:
+ * StoreKit gives no developer API to programmatically pause and later
+ * auto-resume billing on an auto-renewable subscription. Only the
+ * subscriber can cancel it (in iOS Settings), and Apple only lets a
+ * developer offer discounts/promotional offers on top of an existing
+ * subscription — not pause-and-resume the charge itself. An earlier version
+ * of this file modeled a "pausable" subscription; that was not
+ * implementable against real StoreKit and has been removed.
+ *
+ * The model here instead has two independent entitlement sources:
+ *
+ * 1. `journeyPassIds` — a non-renewing, one-time "Full Journey Pass"
+ *    purchase, scoped to one specific Journey by id. This is the PRIMARY,
+ *    default offering. It never expires, never renews, and needs no pause
+ *    logic: since it's already scoped to a single Journey, there's nothing
+ *    to pause — buying a new Journey Pass for the next Journey is simply a
+ *    new (non-renewing) purchase, which is what real App Store non-renewing
+ *    subscriptions/non-consumables are anyway.
+ *
+ * 2. `subscriptionActive` — a SECONDARY, opt-in $9.99/mo auto-renewing
+ *    subscription for users who prefer that model. It is NOT scoped to a
+ *    Journey (Apple has no concept of that), just a boolean mirroring
+ *    RevenueCat's "is this entitlement currently active" flag. It unlocks
+ *    premium for whichever Journey is currently active, for as long as the
+ *    subscriber keeps paying — including across a Journey archive/new
+ *    Journey boundary, since we cannot detect or act on that boundary from
+ *    the billing side. In-app copy must tell subscribers this plainly and
+ *    remind them to cancel it themselves (in iOS Settings) once they no
+ *    longer need it — see PaywallScreen.
  */
 import type { Journey } from '../types/journey';
 
-export type SubscriptionPlan = 'none' | 'monthly_pausable' | 'full_journey_pass';
-
 export interface EntitlementState {
-  plan: SubscriptionPlan;
-  /** Journey the current plan is bound to. Null when plan is 'none' or paused with no target. */
-  boundJourneyId: string | null;
-  /** True once the subscription has been paused because its bound Journey archived. */
-  isPaused: boolean;
-  /** Lifetime flag: has this account ever purchased premium at least once. Used for win-back messaging only. */
-  hasEverSubscribed: boolean;
+  /** Journey IDs that have a purchased, non-renewing Full Journey Pass. Permanent — never revoked. */
+  journeyPassIds: string[];
+  /** Mirrors RevenueCat's auto-renewing subscription "is active" flag. Not Journey-scoped. */
+  subscriptionActive: boolean;
+  /** Lifetime flag: has this account ever purchased premium via either path. Used for renewal/win-back messaging only. */
+  hasEverPurchased: boolean;
 }
 
 export const initialEntitlementState: EntitlementState = {
-  plan: 'none',
-  boundJourneyId: null,
-  isPaused: false,
-  hasEverSubscribed: false,
+  journeyPassIds: [],
+  subscriptionActive: false,
+  hasEverPurchased: false,
 };
 
-/** Whether premium features should be unlocked *for this specific Journey*. */
+/**
+ * Whether premium features should be unlocked *for this specific Journey*.
+ * A Journey Pass purchased for this Journey always unlocks it, even after
+ * archive. An active subscription unlocks premium for whichever Journey is
+ * currently active (it can't distinguish Journeys), so it does not unlock
+ * an already-archived Journey once a different one becomes active.
+ */
 export function isPremiumActiveForJourney(
   entitlement: EntitlementState,
   journey: Journey | null
 ): boolean {
   if (!journey) return false;
-  if (entitlement.plan === 'none') return false;
-  if (entitlement.isPaused) return false;
-  return entitlement.boundJourneyId === journey.id;
+  if (entitlement.journeyPassIds.includes(journey.id)) return true;
+  if (entitlement.subscriptionActive && journey.status === 'active') return true;
+  return false;
 }
 
-/** Called when a Journey is archived. Pauses (never cancels) a pausable plan. */
-export function pauseEntitlementOnJourneyArchive(
-  entitlement: EntitlementState,
-  archivedJourneyId: string
-): EntitlementState {
-  if (entitlement.plan !== 'monthly_pausable' || entitlement.boundJourneyId !== archivedJourneyId) {
-    return entitlement;
-  }
-  return { ...entitlement, isPaused: true };
+/**
+ * Whether the user should be prompted to renew premium for a Journey they
+ * just started — i.e. they've purchased premium before, but neither a pass
+ * nor an active subscription covers this new Journey. This is the honest
+ * replacement for the "auto-resume a paused subscription" behavior that
+ * isn't implementable: instead of resuming automatically, we ask.
+ */
+export function needsRenewalPrompt(entitlement: EntitlementState, newJourney: Journey): boolean {
+  return entitlement.hasEverPurchased && !isPremiumActiveForJourney(entitlement, newJourney);
 }
 
-/** One-tap "resume premium" when starting a new Journey after a pause. No re-purchase required. */
-export function resumeEntitlementForNewJourney(
-  entitlement: EntitlementState,
-  newJourneyId: string
-): EntitlementState {
-  if (entitlement.plan === 'none') return entitlement;
-  return { ...entitlement, isPaused: false, boundJourneyId: newJourneyId };
-}
-
-export function mockPurchase(
-  entitlement: EntitlementState,
-  plan: Exclude<SubscriptionPlan, 'none'>,
-  journeyId: string
-): EntitlementState {
+export function mockPurchaseJourneyPass(entitlement: EntitlementState, journeyId: string): EntitlementState {
+  if (entitlement.journeyPassIds.includes(journeyId)) return entitlement;
   return {
-    plan,
-    boundJourneyId: journeyId,
-    isPaused: false,
-    hasEverSubscribed: true,
+    ...entitlement,
+    journeyPassIds: [...entitlement.journeyPassIds, journeyId],
+    hasEverPurchased: true,
   };
 }
 
-export function mockCancel(entitlement: EntitlementState): EntitlementState {
-  return { ...entitlement, plan: 'none', boundJourneyId: null, isPaused: false };
+export function mockActivateSubscription(entitlement: EntitlementState): EntitlementState {
+  return { ...entitlement, subscriptionActive: true, hasEverPurchased: true };
+}
+
+/**
+ * Local-only bookkeeping for the mock. A REAL subscription cannot be
+ * cancelled from in-app code — only the subscriber can cancel it, via iOS
+ * Settings > [Apple ID] > Subscriptions (or a RevenueCat-hosted manage-
+ * subscriptions link). See PaywallScreen's `openManageSubscriptions`.
+ */
+export function mockDeactivateSubscription(entitlement: EntitlementState): EntitlementState {
+  return { ...entitlement, subscriptionActive: false };
 }
 
 export interface PremiumFeatureFlags {
