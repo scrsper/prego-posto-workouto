@@ -1,5 +1,6 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { PrimaryButton } from './Basics';
 import { colors, radii, spacing, typography } from '../theme/theme';
 
 /** A small inline badge marking a list item / card as premium-only. */
@@ -19,9 +20,7 @@ export function PremiumLockedNotice({ onUpgradePress }: { onUpgradePress: () => 
       <Text style={styles.body}>
         Unlock personalized programs, the full advanced exercise library, and more with premium.
       </Text>
-      <Pressable style={styles.button} onPress={onUpgradePress}>
-        <Text style={styles.buttonText}>See premium options</Text>
-      </Pressable>
+      <PrimaryButton label="See premium options" onPress={onUpgradePress} style={styles.button} />
     </View>
   );
 }
@@ -47,9 +46,6 @@ const styles = StyleSheet.create({
   button: {
     marginTop: spacing.sm,
     backgroundColor: colors.premium,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderRadius: radii.pill,
+    alignSelf: 'stretch',
   },
-  buttonText: { ...typography.body, color: '#fff', fontWeight: '700' },
 });

@@ -343,12 +343,66 @@ implemented here:
   doesn't need a second purchase at all), not just an engineering fix, so
   it needs a decision, not a silent code change.
 
+## Accessibility
+
+This was a source-level audit and fix pass — real VoiceOver/TalkBack
+verification on a device is still outstanding, same constraint as the rest
+of this session (no simulator/device access). What was checked and what
+was found/fixed:
+
+- **`AnatomicalFigure.tsx`'s muscle-pulse animation had no text
+  equivalent at all** — a screen-reader user got nothing from it. Fixed:
+  the whole figure is now one `accessible` node with
+  `accessibilityRole="image"` and a generated label naming the body
+  variant, which muscle group(s) are highlighted (from
+  `MUSCLE_GROUP_LABELS`), and the movement's rep pace (e.g. "pulsing every
+  4 seconds to match the pace of this movement") — see
+  `buildAccessibilityLabel` in that file. `importantForAccessibility="no-hide-descendants"`
+  keeps the dozens of individual decorative SVG shapes from being
+  individually walkable/announced. `ExerciseDetailScreen` passes the
+  exercise name through for extra context.
+- **Dynamic Type**: audited every screen for `numberOfLines`,
+  `allowFontScaling={false}`, `maxFontSizeMultiplier`, fixed-height text
+  containers, and `overflow: hidden` — found none. Exercise steps, safety
+  warnings (`SafetyWarnings`), and the red-flag checklist all wrap in
+  flexible containers with no font-scale caps, so they grow rather than
+  clip at larger accessibility text sizes. Not independently verified on a
+  device at the largest accessibility sizes (that would be the next step
+  with a simulator/device in hand). One known platform-level caveat, not
+  fixable in app code: React Navigation's bottom tab bar labels can get
+  visually tight at the largest Dynamic Type sizes — a general constraint
+  of tab bars, not something specific to this app.
+- **Tap targets**: audited every `Pressable`/button against the ~44×44pt
+  guideline. Found and fixed three real under-sized targets:
+  - The mood/symptom/tag toggle chips (`DailyCheckInScreen`,
+    `SettingsScreen`) were ~24-28pt tall. Extracted into a single shared
+    `ToggleChip` component (`src/components/Basics.tsx`) with `hitSlop`
+    extending the tappable area to the full guideline size without
+    changing how compact they look, plus `accessibilityState={{selected}}`
+    (previously missing entirely — a screen reader had no way to announce
+    a chip's toggle state).
+  - The clearance-acknowledgment checkbox row got `hitSlop`,
+    `accessibilityRole="checkbox"`, and `accessibilityState={{checked}}`
+    (previously just read as unstated body text).
+  - `PremiumLockedNotice`'s "See premium options" button (~36pt) now
+    reuses the shared `PrimaryButton`, which is both properly sized and
+    carries `accessibilityRole="button"`.
+  - `PrimaryButton`/`SecondaryButton` (used for essentially every action
+    in the app, including the Kick Counter's "I felt a kick" and the
+    Contraction Timer's start/stop controls — the screens called out
+    specifically for tap-speed) were already comfortably over the
+    guideline size; added explicit `accessibilityRole="button"` and
+    `accessibilityState={{disabled}}` to both for completeness.
+
 ## Known gaps / next steps
 
 - **An actual on-device/simulator run.** See "What's been verified, and
   where" above — this has never been launched on a real iOS device,
   simulator, or Android emulator. Do this before shipping, with particular
-  attention to `AnatomicalFigure.tsx`'s pulse animation.
+  attention to `AnatomicalFigure.tsx`'s pulse animation and, per the
+  Accessibility section, an actual VoiceOver/TalkBack pass and a check at
+  the largest Dynamic Type sizes — this session could audit the code but
+  not verify runtime screen-reader behavior.
 - Real commissioned anatomical illustrations (see above).
 - Clinical review of all safety/exercise/article content (see above, and
   work through `CONTENT_REVIEW_CHECKLIST.md` at the project root). Every

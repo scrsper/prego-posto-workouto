@@ -72,6 +72,7 @@ export function ExerciseDetailScreen({ route, navigation }: Props) {
           highlightedMuscles={exercise.primaryMuscles}
           repTempoSeconds={exercise.repTempoSeconds}
           showCesareanScar={activeJourney?.deliveryType === 'cesarean'}
+          exerciseName={exercise.name}
         />
       </View>
 

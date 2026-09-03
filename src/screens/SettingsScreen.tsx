@@ -1,9 +1,9 @@
 import React from 'react';
-import { Alert, Pressable, Text, View } from 'react-native';
+import { Alert, Text, View } from 'react-native';
 import type { MainTabScreenProps } from '../navigation/types';
 import { useJourneyStore } from '../state/journeyStore';
-import { Card, ScreenContainer, SecondaryButton } from '../components/Basics';
-import { colors, radii, spacing, typography } from '../theme/theme';
+import { Card, ScreenContainer, SecondaryButton, ToggleChip } from '../components/Basics';
+import { colors, spacing, typography } from '../theme/theme';
 import type { DeliveryType } from '../types/journey';
 
 const DELIVERY_TYPES: DeliveryType[] = ['vaginal', 'cesarean', 'unknown'];
@@ -14,24 +14,6 @@ const PERSONALIZATION_TAGS = [
   'twins-or-multiples',
   'high-risk-pregnancy',
 ];
-
-function Chip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={{
-        paddingHorizontal: spacing.md,
-        paddingVertical: spacing.xs,
-        borderRadius: radii.pill,
-        borderWidth: 1,
-        borderColor: selected ? colors.primary : colors.border,
-        backgroundColor: selected ? colors.primary : colors.surface,
-      }}
-    >
-      <Text style={{ color: selected ? '#fff' : colors.text, ...typography.caption }}>{label}</Text>
-    </Pressable>
-  );
-}
 
 export function SettingsScreen({ navigation }: MainTabScreenProps<'Settings'>) {
   const activeJourney = useJourneyStore((state) => state.activeJourney());
@@ -76,11 +58,11 @@ export function SettingsScreen({ navigation }: MainTabScreenProps<'Settings'>) {
             </Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
               {DELIVERY_TYPES.map((type) => (
-                <Chip
+                <ToggleChip
                   key={type}
                   label={type}
                   selected={activeJourney.deliveryType === type}
-                  onPress={() => updateJourneyDelivery(activeJourney.id, activeJourney.actualDeliveryDate ?? new Date().toISOString(), type)}
+                  onToggle={() => updateJourneyDelivery(activeJourney.id, activeJourney.actualDeliveryDate ?? new Date().toISOString(), type)}
                 />
               ))}
             </View>
@@ -93,11 +75,11 @@ export function SettingsScreen({ navigation }: MainTabScreenProps<'Settings'>) {
             </Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }}>
               {PERSONALIZATION_TAGS.map((tag) => (
-                <Chip
+                <ToggleChip
                   key={tag}
                   label={tag.replace(/-/g, ' ')}
                   selected={activeJourney.personalizationTags.includes(tag)}
-                  onPress={() => toggleTag(tag)}
+                  onToggle={() => toggleTag(tag)}
                 />
               ))}
             </View>

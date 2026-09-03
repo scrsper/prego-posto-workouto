@@ -50,6 +50,10 @@ export function ClearanceAcknowledgmentScreen({ navigation }: Props) {
 
           <Pressable
             onPress={() => setChecked((v) => !v)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked }}
+            accessibilityLabel="I confirm I have been cleared for exercise by my OB, midwife, or physical therapist."
             style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' }}
           >
             <View
