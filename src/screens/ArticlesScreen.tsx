@@ -27,10 +27,19 @@ export function ArticlesScreen({ navigation }: MainTabScreenProps<'Learn'>) {
     <ScreenContainer scroll={false}>
       <Text style={[typography.title, { marginBottom: spacing.sm }]}>Learn</Text>
       <FlatList
+        style={{ flex: 1 }}
         data={ARTICLES}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
-        contentContainerStyle={{ gap: spacing.sm, paddingBottom: spacing.xl }}
+        contentContainerStyle={{ gap: spacing.sm, paddingBottom: spacing.xl, flexGrow: 1 }}
+        ListEmptyComponent={
+          <Card>
+            <Text style={typography.heading}>No articles to show</Text>
+            <Text style={{ ...typography.body, color: colors.textMuted }}>
+              That's unexpected — try restarting the app. If this keeps happening, please let us know.
+            </Text>
+          </Card>
+        }
       />
     </ScreenContainer>
   );

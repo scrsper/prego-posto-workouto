@@ -434,6 +434,64 @@ submission. The gesture itself was implemented and typechecked in this
 session but never tapped through on a real device — verify it on an actual
 TestFlight build before relying on reviewers to be the first to try it.
 
+## Polish pass
+
+A few smaller fixes and refinements, in the order they were tackled:
+
+- **App icon and splash screen.** The app previously had no configured
+  splash screen at all — added `expo-splash-screen` (the plugin entry in
+  `app.json`) with `SplashScreen.preventAutoHideAsync()` in `App.tsx` and
+  `SplashScreen.hideAsync()` in `RootNavigator.tsx` once the Journey store
+  finishes rehydrating, so there's no blank-frame flash between the native
+  splash and first render. The splash background color (`#FFFBF8`) now
+  matches `colors.background` from the theme. **The actual icon and splash
+  artwork are still Expo's generic template placeholders** (`assets/icon.png`,
+  `assets/splash-icon.png`, etc.) — real branded artwork is a separate,
+  unstarted design task, same caveat as the anatomical SVG rig and the
+  clinical content.
+- **Onboarding date-entry bug fix.** `NewJourneyScreen`'s due-date fields
+  had a real correctness bug: JS's `Date` constructor silently *rolls over*
+  an out-of-range month or day (e.g. day 32, or Feb 30) into the following
+  month/year instead of producing an `Invalid Date` — so a typo like "13"
+  for the month could silently create a wildly wrong due date with no
+  error shown, corrupting every downstream trimester/postpartum
+  calculation from the very first screen a user fills in. Fixed with
+  explicit month/day bounds checks, a round-trip check (re-reading the
+  constructed date's month/day/year and comparing against what was typed)
+  to catch any rollover, and a sanity check that the due date is within
+  about a year of today.
+- **Empty states.** `JourneyArchiveScreen`'s empty state got friendlier,
+  context-aware copy (different wording depending on whether a Journey is
+  currently active) that reinforces the "nothing is ever deleted" value
+  proposition instead of a bare "No archived Journeys yet." `ExerciseLibraryScreen`
+  and `ArticlesScreen` got `ListEmptyComponent`s too — their underlying
+  data is a static, always-non-empty array today, so this can't currently
+  trigger, but it's cheap insurance against a future filter/search feature
+  (or a data-loading bug) silently rendering a blank screen instead of an
+  explanation.
+- **Offline handling.** Audited and confirmed: the only networked
+  subsystem in this app is RevenueCat (see "Privacy" above) — every other
+  screen, including the entire safety framework (red-flag checklist,
+  disclaimer, exercise/article content, daily check-ins, kick counter,
+  contraction timer), is backed by local `AsyncStorage` and static data
+  files with zero network dependency, so it all works identically with no
+  connection at all. `src/premium/revenueCat.ts`'s wrapper functions
+  already caught and gracefully degraded every SDK call before this pass
+  (returning `null`/an error-shaped result rather than throwing); what was
+  missing was test coverage proving it. Added
+  `src/premium/__tests__/revenueCat.test.ts` (8 new tests, using
+  `jest.isolateModules` to simulate a configured-but-offline RevenueCat
+  SDK) covering: `configureRevenueCat` failing without throwing, offerings
+  fetch failing → `null`, a purchase failing with a network error vs. a
+  user cancellation (different result shapes), and restore/getCustomerInfo
+  failing → `null` (so cached local entitlement state is left untouched
+  rather than being reset). `journeyStore.ts`'s `initializePurchases`/
+  `restorePurchases` already only update local state on a non-null result,
+  so a user who was subscribed before going offline stays unlocked.
+
+tsc, the full Jest suite (60 tests), and an `expo export --platform web`
+bundle all stay green throughout this pass too.
+
 ## Known gaps / next steps
 
 - **An actual on-device/simulator run.** See "What's been verified, and
@@ -446,6 +504,8 @@ TestFlight build before relying on reviewers to be the first to try it.
   tap gesture (see "App Store review access" below) actually works on a
   real TestFlight build before submitting.
 - Real commissioned anatomical illustrations (see above).
+- Real app icon and splash screen artwork — currently Expo's generic
+  template placeholders (see "Polish pass" above).
 - Clinical review of all safety/exercise/article content (see above, and
   work through `CONTENT_REVIEW_CHECKLIST.md` at the project root). Every
   entry in `exercises.ts`/`articles.ts` carries a `contentReviewStatus:

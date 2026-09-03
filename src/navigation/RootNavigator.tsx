@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import * as SplashScreen from 'expo-splash-screen';
 import type { RootStackParamList } from './types';
 import { useJourneyStore } from '../state/journeyStore';
 import { MainTabs } from './MainTabs';
@@ -25,7 +26,12 @@ export function RootNavigator() {
   const initializePurchases = useJourneyStore((state) => state.initializePurchases);
 
   useEffect(() => {
-    if (hasHydrated) runAutoArchiveSweep();
+    if (hasHydrated) {
+      runAutoArchiveSweep();
+      SplashScreen.hideAsync().catch(() => {
+        // Safe to ignore — e.g. already hidden.
+      });
+    }
   }, [hasHydrated, runAutoArchiveSweep]);
 
   useEffect(() => {
