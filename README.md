@@ -414,6 +414,26 @@ yet and no hosted URL for one; App Store Connect requires a privacy policy
 URL regardless, so publishing `PRIVACY_POLICY.md` somewhere reachable is a
 prerequisite for submission, not just a nice-to-have.
 
+## App Store review access (demo mode)
+
+Since premium is gated behind a real purchase, reviewers need a way to see
+it without paying. `src/premium/demoMode.ts` implements a hidden unlock: on
+the Settings screen, tapping "About" 7 times within ~2.5 seconds reveals a
+code entry field; the correct code sets `entitlement.demoModeEnabled`,
+which makes `isPremiumActiveForJourney` return true unconditionally (see
+`entitlements.ts`) — no purchase, no RevenueCat interaction, unlocked for
+every Journey including archived ones. It's off by default, persisted
+locally once enabled, and reversible from a visible "Turn off demo mode"
+card that appears once it's on.
+
+**`APP_REVIEW_NOTES.md`** has the actual text to paste into App Store
+Connect's review-notes field, plus an important caveat: the default code
+committed in this repo is not a real secret once this repo has been shared
+with anyone — rotate it via `EXPO_PUBLIC_DEMO_MODE_CODE` before a real
+submission. The gesture itself was implemented and typechecked in this
+session but never tapped through on a real device — verify it on an actual
+TestFlight build before relying on reviewers to be the first to try it.
+
 ## Known gaps / next steps
 
 - **An actual on-device/simulator run.** See "What's been verified, and
@@ -422,7 +442,9 @@ prerequisite for submission, not just a nice-to-have.
   attention to `AnatomicalFigure.tsx`'s pulse animation and, per the
   Accessibility section, an actual VoiceOver/TalkBack pass and a check at
   the largest Dynamic Type sizes — this session could audit the code but
-  not verify runtime screen-reader behavior.
+  not verify runtime screen-reader behavior. Also confirm the demo-mode
+  tap gesture (see "App Store review access" below) actually works on a
+  real TestFlight build before submitting.
 - Real commissioned anatomical illustrations (see above).
 - Clinical review of all safety/exercise/article content (see above, and
   work through `CONTENT_REVIEW_CHECKLIST.md` at the project root). Every

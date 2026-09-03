@@ -1,4 +1,5 @@
 import { useJourneyStore } from '../journeyStore';
+import { DEMO_MODE_UNLOCK_CODE } from '../../premium/demoMode';
 
 // Snapshot the store's initial shape (data + actions) once, so each test can
 // reset back to it without losing the action functions themselves.
@@ -185,5 +186,30 @@ describe('purchase actions without RevenueCat configured (the test/Expo Go fallb
   it('initializePurchases reports purchasesInitialized: false without an API key', async () => {
     await useJourneyStore.getState().initializePurchases();
     expect(useJourneyStore.getState().purchasesInitialized).toBe(false);
+  });
+});
+
+describe('demo mode unlock', () => {
+  it('rejects an incorrect code and leaves demo mode off', () => {
+    const succeeded = useJourneyStore.getState().tryEnableDemoMode('definitely-not-it');
+    expect(succeeded).toBe(false);
+    expect(useJourneyStore.getState().entitlement.demoModeEnabled).toBe(false);
+  });
+
+  it('accepts the correct code and unlocks premium for a Journey with no purchase', () => {
+    const id = useJourneyStore.getState().startNewJourney({
+      conceptionMode: 'due_date',
+      estimatedDueDate: '2027-10-01T00:00:00.000Z',
+    });
+    const succeeded = useJourneyStore.getState().tryEnableDemoMode(DEMO_MODE_UNLOCK_CODE);
+    expect(succeeded).toBe(true);
+    expect(useJourneyStore.getState().entitlement.demoModeEnabled).toBe(true);
+    expect(useJourneyStore.getState().entitlement.journeyPassIds).not.toContain(id);
+  });
+
+  it('disableDemoMode turns it back off', () => {
+    useJourneyStore.getState().tryEnableDemoMode(DEMO_MODE_UNLOCK_CODE);
+    useJourneyStore.getState().disableDemoMode();
+    expect(useJourneyStore.getState().entitlement.demoModeEnabled).toBe(false);
   });
 });

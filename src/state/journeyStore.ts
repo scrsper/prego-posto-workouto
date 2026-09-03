@@ -15,8 +15,10 @@ import {
   type EntitlementState,
   initialEntitlementState,
   recordJourneyPassPurchase,
+  setDemoModeEnabled,
   setSubscriptionActive,
 } from '../premium/entitlements';
+import { DEMO_MODE_UNLOCK_CODE } from '../premium/demoMode';
 import * as RevenueCat from '../premium/revenueCat';
 
 export interface PurchaseActionResult {
@@ -77,6 +79,10 @@ interface JourneyStoreState {
   restorePurchases: () => Promise<void>;
   /** Dev-only: flips the local subscription flag off without touching any real subscription. Only meaningful when RevenueCat isn't configured — see PaywallScreen. */
   devSimulateCancelSubscription: () => void;
+
+  /** App Store reviewer / QA unlock — see src/premium/demoMode.ts. Returns whether the code was correct. */
+  tryEnableDemoMode: (code: string) => boolean;
+  disableDemoMode: () => void;
 
   activeJourney: () => Journey | null;
   archivedJourneys: () => Journey[];
@@ -329,6 +335,16 @@ export const useJourneyStore = create<JourneyStoreState>()(
 
       devSimulateCancelSubscription: () => {
         set((state) => ({ entitlement: setSubscriptionActive(state.entitlement, false) }));
+      },
+
+      tryEnableDemoMode: (code) => {
+        if (code !== DEMO_MODE_UNLOCK_CODE) return false;
+        set((state) => ({ entitlement: setDemoModeEnabled(state.entitlement, true) }));
+        return true;
+      },
+
+      disableDemoMode: () => {
+        set((state) => ({ entitlement: setDemoModeEnabled(state.entitlement, false) }));
       },
 
       activeJourney: () => {

@@ -47,12 +47,21 @@ export interface EntitlementState {
   subscriptionActive: boolean;
   /** Lifetime flag: has this account ever purchased premium via either path. Used for renewal/win-back messaging only. */
   hasEverPurchased: boolean;
+  /**
+   * App Store reviewer / QA demo unlock — see src/premium/demoMode.ts.
+   * Defaults false and requires a hidden gesture + secret code to enable
+   * (SettingsScreen), so it never ships "on" and can't be flipped by an
+   * ordinary user browsing the app normally. When true, unlocks premium
+   * for every Journey without a real purchase.
+   */
+  demoModeEnabled: boolean;
 }
 
 export const initialEntitlementState: EntitlementState = {
   journeyPassIds: [],
   subscriptionActive: false,
   hasEverPurchased: false,
+  demoModeEnabled: false,
 };
 
 /**
@@ -60,13 +69,16 @@ export const initialEntitlementState: EntitlementState = {
  * A Journey Pass purchased for this Journey always unlocks it, even after
  * archive. An active subscription unlocks premium for whichever Journey is
  * currently active (it can't distinguish Journeys), so it does not unlock
- * an already-archived Journey once a different one becomes active.
+ * an already-archived Journey once a different one becomes active. Demo
+ * mode (see EntitlementState.demoModeEnabled) unconditionally unlocks
+ * everything, for App Store review / QA.
  */
 export function isPremiumActiveForJourney(
   entitlement: EntitlementState,
   journey: Journey | null
 ): boolean {
   if (!journey) return false;
+  if (entitlement.demoModeEnabled) return true;
   if (entitlement.journeyPassIds.includes(journey.id)) return true;
   if (entitlement.subscriptionActive && journey.status === 'active') return true;
   return false;
@@ -116,6 +128,11 @@ export function setSubscriptionActive(entitlement: EntitlementState, active: boo
     subscriptionActive: active,
     hasEverPurchased: entitlement.hasEverPurchased || active,
   };
+}
+
+/** Pure local state setter for the demo-mode unlock — see EntitlementState.demoModeEnabled. */
+export function setDemoModeEnabled(entitlement: EntitlementState, enabled: boolean): EntitlementState {
+  return { ...entitlement, demoModeEnabled: enabled };
 }
 
 export interface PremiumFeatureFlags {

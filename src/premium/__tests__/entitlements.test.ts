@@ -2,6 +2,7 @@ import {
   initialEntitlementState,
   isPremiumActiveForJourney,
   recordJourneyPassPurchase,
+  setDemoModeEnabled,
   setSubscriptionActive,
   needsRenewalPrompt,
 } from '../entitlements';
@@ -94,5 +95,36 @@ describe('needsRenewalPrompt', () => {
     const journey = makeJourney({ id: 'journey-new', status: 'active' });
     const entitlement = recordJourneyPassPurchase(initialEntitlementState, 'journey-new');
     expect(needsRenewalPrompt(entitlement, journey)).toBe(false);
+  });
+});
+
+describe('demo mode (App Store reviewer / QA unlock)', () => {
+  it('defaults to disabled', () => {
+    expect(initialEntitlementState.demoModeEnabled).toBe(false);
+  });
+
+  it('unconditionally unlocks premium for any Journey once enabled, with no purchase at all', () => {
+    const journey = makeJourney({ id: 'journey-any', status: 'active' });
+    const entitlement = setDemoModeEnabled(initialEntitlementState, true);
+    expect(isPremiumActiveForJourney(entitlement, journey)).toBe(true);
+  });
+
+  it('unlocks even an archived Journey (unlike a bare subscription)', () => {
+    const archivedJourney = makeJourney({ id: 'journey-old', status: 'archived' });
+    const entitlement = setDemoModeEnabled(initialEntitlementState, true);
+    expect(isPremiumActiveForJourney(entitlement, archivedJourney)).toBe(true);
+  });
+
+  it('suppresses the renewal prompt entirely, so a reviewer never gets stuck on the Paywall', () => {
+    const entitlement = setDemoModeEnabled(initialEntitlementState, true);
+    const newJourney = makeJourney({ id: 'journey-new', status: 'active' });
+    expect(needsRenewalPrompt(entitlement, newJourney)).toBe(false);
+  });
+
+  it('can be turned back off, reverting to normal entitlement rules', () => {
+    let entitlement = setDemoModeEnabled(initialEntitlementState, true);
+    entitlement = setDemoModeEnabled(entitlement, false);
+    const journey = makeJourney({ id: 'journey-any', status: 'active' });
+    expect(isPremiumActiveForJourney(entitlement, journey)).toBe(false);
   });
 });
