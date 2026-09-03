@@ -22,10 +22,18 @@ export function RootNavigator() {
   const hasHydrated = useJourneyStore((state) => state.hasHydrated);
   const activeJourneyId = useJourneyStore((state) => state.activeJourneyId);
   const runAutoArchiveSweep = useJourneyStore((state) => state.runAutoArchiveSweep);
+  const initializePurchases = useJourneyStore((state) => state.initializePurchases);
 
   useEffect(() => {
     if (hasHydrated) runAutoArchiveSweep();
   }, [hasHydrated, runAutoArchiveSweep]);
+
+  useEffect(() => {
+    // Configures RevenueCat (no-op/falls back to the local mock if it
+    // isn't available — e.g. Expo Go, or no API key set) and syncs
+    // subscriptionActive with whatever RevenueCat currently reports.
+    initializePurchases();
+  }, [initializePurchases]);
 
   if (!hasHydrated) return null;
 

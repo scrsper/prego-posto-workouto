@@ -133,13 +133,15 @@ describe('runAutoArchiveSweep', () => {
 });
 
 describe('needsRenewalPrompt-driven flow, end to end through the store', () => {
-  it('a returning purchaser starting a new Journey is not covered until they buy a new pass', () => {
+  it('a returning purchaser starting a new Journey is not covered until they buy a new pass', async () => {
     const store = useJourneyStore.getState();
     const firstId = store.startNewJourney({
       conceptionMode: 'due_date',
       estimatedDueDate: '2027-10-01T00:00:00.000Z',
     });
-    useJourneyStore.getState().purchaseJourneyPass(firstId);
+    // No RevenueCat API key in the test environment, so this exercises the
+    // local dev fallback path — see purchaseJourneyPass in journeyStore.ts.
+    await useJourneyStore.getState().purchaseJourneyPass(firstId);
     useJourneyStore.getState().archiveJourney(firstId);
 
     const secondId = useJourneyStore.getState().startNewJourney({
@@ -150,5 +152,38 @@ describe('needsRenewalPrompt-driven flow, end to end through the store', () => {
     const state = useJourneyStore.getState();
     expect(state.entitlement.journeyPassIds).toEqual([firstId]);
     expect(state.entitlement.journeyPassIds).not.toContain(secondId);
+  });
+});
+
+describe('purchase actions without RevenueCat configured (the test/Expo Go fallback path)', () => {
+  it('purchaseJourneyPass records the pass locally and reports it was a local fallback', async () => {
+    const id = useJourneyStore.getState().startNewJourney({
+      conceptionMode: 'due_date',
+      estimatedDueDate: '2027-10-01T00:00:00.000Z',
+    });
+    const result = await useJourneyStore.getState().purchaseJourneyPass(id);
+    expect(result.status).toBe('success');
+    expect(useJourneyStore.getState().entitlement.journeyPassIds).toContain(id);
+  });
+
+  it('purchaseSubscription activates the subscription flag locally', async () => {
+    const result = await useJourneyStore.getState().purchaseSubscription();
+    expect(result.status).toBe('success');
+    expect(useJourneyStore.getState().entitlement.subscriptionActive).toBe(true);
+  });
+
+  it('devSimulateCancelSubscription turns the local flag back off', async () => {
+    await useJourneyStore.getState().purchaseSubscription();
+    useJourneyStore.getState().devSimulateCancelSubscription();
+    expect(useJourneyStore.getState().entitlement.subscriptionActive).toBe(false);
+  });
+
+  it('restorePurchases is a no-op without RevenueCat configured (does not throw)', async () => {
+    await expect(useJourneyStore.getState().restorePurchases()).resolves.toBeUndefined();
+  });
+
+  it('initializePurchases reports purchasesInitialized: false without an API key', async () => {
+    await useJourneyStore.getState().initializePurchases();
+    expect(useJourneyStore.getState().purchasesInitialized).toBe(false);
   });
 });

@@ -222,12 +222,16 @@ The model now has two independent, honestly-modeled entitlement sources:
   where you'd offer a RevenueCat promotional offer instead of a fresh
   purchase flow.
 
-`mockPurchaseJourneyPass` / `mockActivateSubscription` /
-`mockDeactivateSubscription` in `entitlements.ts` are the integration seam
-for RevenueCat (`react-native-purchases`): replace them with real purchase
-calls, and drive `EntitlementState` from RevenueCat's `CustomerInfo`
-listener instead of local mutation. The ~85/15 free/premium split from the
-spec is reflected in `isPremium` flags across `src/data/exercises.ts` and
+RevenueCat (`react-native-purchases`) is wired in for real — see
+"RevenueCat setup" below for what that means in practice and what's still
+unverified. `entitlements.ts` stays purely local/pure-function (no SDK
+import): `recordJourneyPassPurchase` and `setSubscriptionActive` are plain
+state writers that `journeyStore.ts` calls either after a real RevenueCat
+purchase succeeds, or directly (dev/Expo Go fallback) when RevenueCat isn't
+configured — see `src/premium/revenueCat.ts` for the SDK wrapper and its
+long comment on why Journey Pass ownership is tracked locally rather than
+as a RevenueCat entitlement. The ~85/15 free/premium split from the spec is
+reflected in `isPremium` flags across `src/data/exercises.ts` and
 `src/data/articles.ts`.
 
 **App Store Connect setup**: this needs **two separate IAP products** —
@@ -237,6 +241,107 @@ Pass, and the existing auto-renewable subscription product for the monthly
 plan. They are different product types in App Store Connect and are not
 interchangeable — don't try to model the Journey Pass as an auto-renewable
 product with quantity 1, since that still auto-renews unless cancelled.
+
+## RevenueCat setup
+
+The SDK integration is real code (`react-native-purchases@10.8.1`,
+`src/premium/revenueCat.ts`, wired into `journeyStore.ts` and
+`PaywallScreen`), but **no purchase has actually been tested against
+RevenueCat or the App Store**, sandbox or otherwise — this sandboxed
+environment has no Apple Developer account, no App Store Connect access,
+no RevenueCat dashboard account, and (per the device-verification pass
+above) no simulator/device to run a native build on at all. Everything
+below is the setup + test runbook for whoever picks this up with real
+credentials and hardware, written from having actually implemented against
+the installed SDK's real TypeScript types (not from memory/guesswork).
+
+### One-time setup
+
+1. **App Store Connect**: create two In-App Purchase products.
+   - A **Non-Renewing Subscription** (or Non-Consumable, if you'd rather it
+     read as a literal one-time unlock with no built-in "duration" concept)
+     for the **Full Journey Pass**. Do not use an auto-renewable product
+     here even at "quantity 1" — it will still auto-renew unless the user
+     cancels it, defeating the entire point of this being the pause-free
+     option.
+   - The existing **auto-renewable subscription** product for the $9.99/mo
+     plan, in its own subscription group.
+2. **RevenueCat dashboard**: create a project, connect the App Store
+   Connect app, then:
+   - Create an **entitlement** (e.g. `premium_subscription` — must match
+     `SUBSCRIPTION_ENTITLEMENT_ID` in `src/premium/revenueCatConfig.ts`)
+     and attach ONLY the auto-renewable subscription product to it. Do
+     **not** attach the Journey Pass product to any entitlement — see the
+     long comment at the top of `revenueCat.ts` for why.
+   - Create an **Offering** (id `default`, matching `DEFAULT_OFFERING_ID`)
+     with two **Packages**: one wrapping the Journey Pass product (custom
+     package identifier `journey_pass`, matching `JOURNEY_PASS_PACKAGE_ID`)
+     and one wrapping the subscription product (the built-in `$rc_monthly`
+     package type is the default match for `MONTHLY_SUBSCRIPTION_PACKAGE_ID`
+     — keep it, or update the config constant if you rename it).
+   - Grab the **public** iOS (and Android, if you build for it) API key
+     from Project Settings → API Keys.
+3. Copy `.env.example` to `.env` and fill in
+   `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` (and `_ANDROID_API_KEY`) with those
+   keys. These are public SDK keys meant to ship in the client — never put
+   RevenueCat's separate REST API *secret* key in app code.
+4. **This is a native module — Expo Go will not work.** Build a custom dev
+   client (`npx expo run:ios`, or `eas build --profile development`) or a
+   full release/TestFlight build. Without a dev client, `configureRevenueCat()`
+   will always report failure and the app will silently keep using the
+   local mock (which is safe, but obviously isn't what you want to test).
+
+### Testing with a sandbox account
+
+1. Create a Sandbox Apple ID in App Store Connect (Users and Access →
+   Sandbox → Testers) if you don't already have one, and sign into it on
+   the test device under Settings → App Store → Sandbox Account (iOS 17
+   splits this out from your regular Apple ID — don't sign into it as your
+   main iCloud account).
+2. Run the dev client build on that device and open the Paywall screen. If
+   `purchasesInitialized` is true (no yellow warning card at the top of the
+   screen), RevenueCat configured successfully.
+3. **Journey Pass purchase**: tap "Get the Journey Pass". Confirm the
+   sandbox purchase sheet appears, complete it, and confirm
+   `ExerciseLibraryScreen`'s premium items unlock immediately for the
+   active Journey.
+4. **Subscription purchase**: tap "Start monthly subscription" the same
+   way. Confirm the "Manage subscription in Settings" link actually opens
+   the App Store subscriptions screen for that sandbox account.
+5. **Restore**: on a second device (or after deleting and reinstalling the
+   dev client on the same device) signed into the same sandbox account, tap
+   "Restore purchases". The subscription should reactivate correctly. The
+   Journey Pass will NOT re-associate with its original Journey — see the
+   known limitation below; this is expected, not a bug to chase.
+6. **Renewal flow**: archive the Journey (Settings → "End this Journey"),
+   start a new one, and confirm you land on the Paywall automatically
+   (`needsRenewalPrompt`) with "Welcome back" framing, rather than premium
+   silently carrying over.
+7. **Live entitlement sync**: with the app open, cancel the sandbox
+   subscription from Settings, then background/foreground the app (or wait
+   for RevenueCat's periodic sync) and confirm `subscriptionActive` flips
+   off via the `addCustomerInfoUpdateListener` wiring in
+   `initializePurchases`, without needing to reopen the Paywall screen.
+
+### Known limitation: Journey Pass restore can't reconstruct which Journey it was for
+
+RevenueCat's `CustomerInfo.nonSubscriptionTransactions` can tell you a
+Journey Pass product was purchased and when — it has no concept of "which
+Journey" because that's an app-specific idea, not a store one. Journey
+Pass → Journey-id association lives only in this app's local
+`entitlement.journeyPassIds`, in AsyncStorage. Reinstalling the app or
+switching devices loses that mapping even though `restorePurchases()`
+correctly confirms *a* purchase happened. There are two real fixes, neither
+implemented here:
+- Sync `journeys` (and thus `entitlement.journeyPassIds`) to a backend
+  (Supabase/Firebase — see "Known gaps" below), so the mapping survives a
+  reinstall independent of RevenueCat entirely.
+- Or, if a given Journey Pass product is only ever meant to be purchased
+  once per account (not one-per-Journey), collapse the model to a single
+  lifetime `hasJourneyPass: boolean` instead of a per-Journey list —
+  but that's a real product-scope change (it would mean a second pregnancy
+  doesn't need a second purchase at all), not just an engineering fix, so
+  it needs a decision, not a silent code change.
 
 ## Known gaps / next steps
 
@@ -251,7 +356,11 @@ product with quantity 1, since that still auto-renews unless cancelled.
   'needs_clinical_review'` field until a named reviewer has actually
   checked it off. Running the app in dev mode (`__DEV__`) shows a red
   banner and logs a console warning as a standing reminder of this.
-- RevenueCat integration (currently mocked locally).
+- RevenueCat sandbox/production purchase testing (SDK is wired in; nothing
+  has actually been purchased against it — see "RevenueCat setup" above).
+- The Journey Pass restore-across-reinstall limitation described above
+  (needs either backend sync of Journey data, or a product-scope decision
+  to make the pass a one-time lifetime purchase instead of per-Journey).
 - Cloud sync (Supabase/Firebase) for cross-device Journey history — the
   Zustand store's `partialize`d shape is already the natural sync payload.
 - Cross-Journey analytics charts (`JourneyArchiveScreen` has a labeled slot

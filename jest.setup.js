@@ -10,3 +10,25 @@ process.env.TZ = 'UTC';
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock')
 );
+
+// react-native-purchases is a native module (unavailable under Jest, same
+// as it's unavailable in Expo Go) whose JS package also ships ESM code
+// jest-expo's transformIgnorePatterns doesn't cover. Every unit test runs
+// with no RevenueCat API key set, so src/premium/revenueCat.ts never calls
+// into this beyond `configure` (which then no-ops) — this stub only needs
+// to satisfy module resolution, not behave correctly.
+jest.mock('react-native-purchases', () => ({
+  __esModule: true,
+  default: {
+    configure: jest.fn(),
+    setLogLevel: jest.fn(),
+    getOfferings: jest.fn(),
+    purchasePackage: jest.fn(),
+    restorePurchases: jest.fn(),
+    getCustomerInfo: jest.fn(),
+    addCustomerInfoUpdateListener: jest.fn(),
+    removeCustomerInfoUpdateListener: jest.fn(),
+  },
+  LOG_LEVEL: { DEBUG: 'DEBUG' },
+  PURCHASES_ERROR_CODE: { PURCHASE_CANCELLED_ERROR: '1' },
+}));

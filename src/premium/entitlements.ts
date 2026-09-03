@@ -83,7 +83,14 @@ export function needsRenewalPrompt(entitlement: EntitlementState, newJourney: Jo
   return entitlement.hasEverPurchased && !isPremiumActiveForJourney(entitlement, newJourney);
 }
 
-export function mockPurchaseJourneyPass(entitlement: EntitlementState, journeyId: string): EntitlementState {
+/**
+ * Records that `journeyId` now has a purchased Journey Pass. Pure local
+ * state — the caller (journeyStore) is responsible for having already
+ * confirmed the purchase actually happened, whether via a real RevenueCat
+ * purchase or (in a build with no RevenueCat API key configured, e.g.
+ * Expo Go) the local dev-only fallback.
+ */
+export function recordJourneyPassPurchase(entitlement: EntitlementState, journeyId: string): EntitlementState {
   if (entitlement.journeyPassIds.includes(journeyId)) return entitlement;
   return {
     ...entitlement,
@@ -92,18 +99,23 @@ export function mockPurchaseJourneyPass(entitlement: EntitlementState, journeyId
   };
 }
 
-export function mockActivateSubscription(entitlement: EntitlementState): EntitlementState {
-  return { ...entitlement, subscriptionActive: true, hasEverPurchased: true };
-}
-
 /**
- * Local-only bookkeeping for the mock. A REAL subscription cannot be
- * cancelled from in-app code — only the subscriber can cancel it, via iOS
- * Settings > [Apple ID] > Subscriptions (or a RevenueCat-hosted manage-
- * subscriptions link). See PaywallScreen's `openManageSubscriptions`.
+ * Sets the (global, not Journey-scoped) subscription flag. Pure local
+ * state, meant to mirror whatever RevenueCat's `CustomerInfo` last reported
+ * — see journeyStore's `initializePurchases`/`restorePurchases`. A REAL
+ * subscription cannot be cancelled from in-app code — only the subscriber
+ * can cancel it, via iOS Settings > [Apple ID] > Subscriptions (or a
+ * RevenueCat-hosted manage-subscriptions link) — so passing `false` here
+ * should only ever happen because RevenueCat reported the subscription as
+ * no longer active, or (dev-only, with no RevenueCat configured) a local
+ * simulate-cancel control. See PaywallScreen.
  */
-export function mockDeactivateSubscription(entitlement: EntitlementState): EntitlementState {
-  return { ...entitlement, subscriptionActive: false };
+export function setSubscriptionActive(entitlement: EntitlementState, active: boolean): EntitlementState {
+  return {
+    ...entitlement,
+    subscriptionActive: active,
+    hasEverPurchased: entitlement.hasEverPurchased || active,
+  };
 }
 
 export interface PremiumFeatureFlags {

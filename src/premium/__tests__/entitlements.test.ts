@@ -1,9 +1,8 @@
 import {
   initialEntitlementState,
   isPremiumActiveForJourney,
-  mockActivateSubscription,
-  mockDeactivateSubscription,
-  mockPurchaseJourneyPass,
+  recordJourneyPassPurchase,
+  setSubscriptionActive,
   needsRenewalPrompt,
 } from '../entitlements';
 import type { Journey } from '../../types/journey';
@@ -32,36 +31,36 @@ describe('isPremiumActiveForJourney', () => {
 
   it('is true for a Journey with its own purchased pass', () => {
     const journey = makeJourney({ id: 'journey-a' });
-    const entitlement = mockPurchaseJourneyPass(initialEntitlementState, 'journey-a');
+    const entitlement = recordJourneyPassPurchase(initialEntitlementState, 'journey-a');
     expect(isPremiumActiveForJourney(entitlement, journey)).toBe(true);
   });
 
   it('a pass for one Journey does not unlock a different Journey', () => {
     const otherJourney = makeJourney({ id: 'journey-b' });
-    const entitlement = mockPurchaseJourneyPass(initialEntitlementState, 'journey-a');
+    const entitlement = recordJourneyPassPurchase(initialEntitlementState, 'journey-a');
     expect(isPremiumActiveForJourney(entitlement, otherJourney)).toBe(false);
   });
 
   it('an active subscription unlocks the currently active Journey', () => {
     const activeJourney = makeJourney({ id: 'journey-a', status: 'active' });
-    const entitlement = mockActivateSubscription(initialEntitlementState);
+    const entitlement = setSubscriptionActive(initialEntitlementState, true);
     expect(isPremiumActiveForJourney(entitlement, activeJourney)).toBe(true);
   });
 
   it('an active subscription does NOT unlock an archived Journey', () => {
     const archivedJourney = makeJourney({ id: 'journey-old', status: 'archived' });
-    const entitlement = mockActivateSubscription(initialEntitlementState);
+    const entitlement = setSubscriptionActive(initialEntitlementState, true);
     expect(isPremiumActiveForJourney(entitlement, archivedJourney)).toBe(false);
   });
 
   it('an archived Journey keeps its own pass forever', () => {
     const archivedJourney = makeJourney({ id: 'journey-old', status: 'archived' });
-    const entitlement = mockPurchaseJourneyPass(initialEntitlementState, 'journey-old');
+    const entitlement = recordJourneyPassPurchase(initialEntitlementState, 'journey-old');
     expect(isPremiumActiveForJourney(entitlement, archivedJourney)).toBe(true);
   });
 
   it('is false for a null journey', () => {
-    expect(isPremiumActiveForJourney(mockActivateSubscription(initialEntitlementState), null)).toBe(false);
+    expect(isPremiumActiveForJourney(setSubscriptionActive(initialEntitlementState, true), null)).toBe(false);
   });
 });
 
@@ -73,27 +72,27 @@ describe('needsRenewalPrompt', () => {
 
   it('is true for a returning purchaser whose new Journey has no coverage', () => {
     // They bought a pass for a previous (now-archived) Journey only.
-    const entitlement = mockPurchaseJourneyPass(initialEntitlementState, 'journey-old');
+    const entitlement = recordJourneyPassPurchase(initialEntitlementState, 'journey-old');
     const newJourney = makeJourney({ id: 'journey-new', status: 'active' });
     expect(needsRenewalPrompt(entitlement, newJourney)).toBe(true);
   });
 
   it('is false when an active subscription already covers the new Journey', () => {
-    const entitlement = mockActivateSubscription(initialEntitlementState);
+    const entitlement = setSubscriptionActive(initialEntitlementState, true);
     const newJourney = makeJourney({ id: 'journey-new', status: 'active' });
     expect(needsRenewalPrompt(entitlement, newJourney)).toBe(false);
   });
 
   it('is true again once a subscriber cancels and then starts another new Journey', () => {
-    let entitlement = mockActivateSubscription(initialEntitlementState);
-    entitlement = mockDeactivateSubscription(entitlement);
+    let entitlement = setSubscriptionActive(initialEntitlementState, true);
+    entitlement = setSubscriptionActive(entitlement, false);
     const newJourney = makeJourney({ id: 'journey-newer', status: 'active' });
     expect(needsRenewalPrompt(entitlement, newJourney)).toBe(true);
   });
 
   it('is false for a brand-new Journey Pass purchase covering exactly this Journey', () => {
     const journey = makeJourney({ id: 'journey-new', status: 'active' });
-    const entitlement = mockPurchaseJourneyPass(initialEntitlementState, 'journey-new');
+    const entitlement = recordJourneyPassPurchase(initialEntitlementState, 'journey-new');
     expect(needsRenewalPrompt(entitlement, journey)).toBe(false);
   });
 });

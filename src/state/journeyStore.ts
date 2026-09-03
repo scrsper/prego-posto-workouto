@@ -14,10 +14,15 @@ import { isJourneyPastEnd } from '../utils/pregnancyDates';
 import {
   type EntitlementState,
   initialEntitlementState,
-  mockActivateSubscription,
-  mockDeactivateSubscription,
-  mockPurchaseJourneyPass,
+  recordJourneyPassPurchase,
+  setSubscriptionActive,
 } from '../premium/entitlements';
+import * as RevenueCat from '../premium/revenueCat';
+
+export interface PurchaseActionResult {
+  status: 'success' | 'cancelled' | 'error';
+  message?: string;
+}
 
 function generateId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -25,6 +30,8 @@ function generateId(): string {
 
 interface JourneyStoreState {
   hasHydrated: boolean;
+  /** Whether RevenueCat successfully configured (false in Expo Go, or with no API key set — see revenueCat.ts). */
+  purchasesInitialized: boolean;
   journeys: Journey[];
   activeJourneyId: string | null;
   dailyCheckIns: DailyCheckIn[];
@@ -60,9 +67,16 @@ interface JourneyStoreState {
   endContraction: (sessionId: string) => void;
   endContractionSession: (sessionId: string) => void;
 
-  purchaseJourneyPass: (journeyId: string) => void;
-  activateSubscription: () => void;
-  deactivateSubscription: () => void;
+  /** Configures RevenueCat (if an API key is set) and syncs current + future subscription status. Call once at app start. */
+  initializePurchases: () => Promise<void>;
+  /** Buys a Journey Pass for `journeyId` via RevenueCat, or (no RevenueCat configured) records it locally as a dev fallback. */
+  purchaseJourneyPass: (journeyId: string) => Promise<PurchaseActionResult>;
+  /** Buys the monthly subscription via RevenueCat, or (no RevenueCat configured) records it locally as a dev fallback. */
+  purchaseSubscription: () => Promise<PurchaseActionResult>;
+  /** Restores prior purchases via RevenueCat and re-syncs subscription status. No-op without RevenueCat configured. */
+  restorePurchases: () => Promise<void>;
+  /** Dev-only: flips the local subscription flag off without touching any real subscription. Only meaningful when RevenueCat isn't configured — see PaywallScreen. */
+  devSimulateCancelSubscription: () => void;
 
   activeJourney: () => Journey | null;
   archivedJourneys: () => Journey[];
@@ -72,6 +86,7 @@ export const useJourneyStore = create<JourneyStoreState>()(
   persist(
     (set, get) => ({
       hasHydrated: false,
+      purchasesInitialized: false,
       journeys: [],
       activeJourneyId: null,
       dailyCheckIns: [],
@@ -245,16 +260,75 @@ export const useJourneyStore = create<JourneyStoreState>()(
         }));
       },
 
-      purchaseJourneyPass: (journeyId) => {
-        set((state) => ({ entitlement: mockPurchaseJourneyPass(state.entitlement, journeyId) }));
+      initializePurchases: async () => {
+        const configured = RevenueCat.configureRevenueCat();
+        set({ purchasesInitialized: configured });
+        if (!configured) return;
+
+        const info = await RevenueCat.getCustomerInfo();
+        if (info) {
+          set((state) => ({
+            entitlement: setSubscriptionActive(state.entitlement, RevenueCat.isSubscriptionEntitlementActive(info)),
+          }));
+        }
+
+        // Keeps subscriptionActive in sync with renewals/expirations/refunds
+        // that happen outside the app (e.g. the subscription lapses while
+        // the app isn't open, or the user cancels via iOS Settings).
+        RevenueCat.subscribeToCustomerInfoUpdates((updatedInfo) => {
+          set((state) => ({
+            entitlement: setSubscriptionActive(state.entitlement, RevenueCat.isSubscriptionEntitlementActive(updatedInfo)),
+          }));
+        });
       },
 
-      activateSubscription: () => {
-        set((state) => ({ entitlement: mockActivateSubscription(state.entitlement) }));
+      purchaseJourneyPass: async (journeyId) => {
+        if (RevenueCat.isRevenueCatConfigured()) {
+          const pkg = await RevenueCat.fetchJourneyPassPackage();
+          if (!pkg) {
+            return { status: 'error', message: 'The Journey Pass isn’t available right now — please try again shortly.' };
+          }
+          const outcome = await RevenueCat.purchasePackage(pkg);
+          if (outcome.status !== 'success') return outcome;
+          set((state) => ({ entitlement: recordJourneyPassPurchase(state.entitlement, journeyId) }));
+          return { status: 'success' };
+        }
+
+        // Dev/Expo Go fallback — no RevenueCat API key configured, so there
+        // is no real product to buy. Records the pass locally so the rest
+        // of the app (premium gating, renewal flow, etc.) stays testable.
+        set((state) => ({ entitlement: recordJourneyPassPurchase(state.entitlement, journeyId) }));
+        return { status: 'success', message: 'Recorded locally — RevenueCat is not configured in this build.' };
       },
 
-      deactivateSubscription: () => {
-        set((state) => ({ entitlement: mockDeactivateSubscription(state.entitlement) }));
+      purchaseSubscription: async () => {
+        if (RevenueCat.isRevenueCatConfigured()) {
+          const pkg = await RevenueCat.fetchSubscriptionPackage();
+          if (!pkg) {
+            return { status: 'error', message: 'The subscription isn’t available right now — please try again shortly.' };
+          }
+          const outcome = await RevenueCat.purchasePackage(pkg);
+          if (outcome.status !== 'success') return outcome;
+          set((state) => ({ entitlement: setSubscriptionActive(state.entitlement, true) }));
+          return { status: 'success' };
+        }
+
+        set((state) => ({ entitlement: setSubscriptionActive(state.entitlement, true) }));
+        return { status: 'success', message: 'Recorded locally — RevenueCat is not configured in this build.' };
+      },
+
+      restorePurchases: async () => {
+        if (!RevenueCat.isRevenueCatConfigured()) return;
+        const info = await RevenueCat.restorePurchases();
+        if (info) {
+          set((state) => ({
+            entitlement: setSubscriptionActive(state.entitlement, RevenueCat.isSubscriptionEntitlementActive(info)),
+          }));
+        }
+      },
+
+      devSimulateCancelSubscription: () => {
+        set((state) => ({ entitlement: setSubscriptionActive(state.entitlement, false) }));
       },
 
       activeJourney: () => {
