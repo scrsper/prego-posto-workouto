@@ -394,6 +394,26 @@ was found/fixed:
     guideline size; added explicit `accessibilityRole="button"` and
     `accessibilityState={{disabled}}` to both for completeness.
 
+## Privacy
+
+`PRIVACY_POLICY.md` and `APP_STORE_PRIVACY.md` at the project root are
+drafts, traced against actual data flows in this codebase (there are
+exactly two: everything the user enters stays in local `AsyncStorage`
+— `src/state/journeyStore.ts` — and RevenueCat is the one place data
+leaves the device — flagged inline with `PRIVACY:` comments at its call
+sites in `src/premium/revenueCat.ts`). No analytics, crash reporting, or
+custom backend exists in this codebase as of this writing; if you add any
+of those, update both documents in the same change — they say so
+explicitly.
+
+**Both documents are drafts and say so at the top.** Neither has been
+reviewed by a lawyer or privacy professional, and this is a health-adjacent
+app collecting pregnancy/postpartum data — that review is not optional
+before a real launch. There's also no in-app "View Privacy Policy" screen
+yet and no hosted URL for one; App Store Connect requires a privacy policy
+URL regardless, so publishing `PRIVACY_POLICY.md` somewhere reachable is a
+prerequisite for submission, not just a nice-to-have.
+
 ## Known gaps / next steps
 
 - **An actual on-device/simulator run.** See "What's been verified, and
@@ -422,3 +442,6 @@ was found/fixed:
 - Downloadable clearance/progress PDF summary for OB/PT visits.
 - Partner/family viewer seat (auth + a read-only view are not built).
 - Push notifications (daily check-in reminders, red-flag follow-ups).
+- Legal review and hosting of `PRIVACY_POLICY.md`, and an in-app link to
+  it, plus the real App Store Connect "App Privacy" questionnaire submission
+  (draft in `APP_STORE_PRIVACY.md`) — see "Privacy" above.

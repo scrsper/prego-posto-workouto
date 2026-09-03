@@ -1,6 +1,15 @@
 /**
  * Thin wrapper around the RevenueCat SDK (`react-native-purchases`).
  *
+ * PRIVACY: this file is the ONLY place in this app's code that sends any
+ * data off the user's device. It sends an anonymous, RevenueCat-generated
+ * app user ID plus purchase/transaction data to RevenueCat — never any
+ * Journey/health data (mood, symptoms, delivery details, etc.), which
+ * stays in local AsyncStorage (see journeyStore.ts). If you add analytics,
+ * crash reporting, or a backend anywhere else in this app, update
+ * PRIVACY_POLICY.md and APP_STORE_PRIVACY.md at the project root — both
+ * were written assuming this is the only off-device data flow.
+ *
  * IMPORTANT — this is a native module. It does NOT work in Expo Go; you
  * need a custom dev client (`npx expo run:ios` / `eas build --profile
  * development`) or a production build. `configureRevenueCat()` detects
@@ -83,6 +92,10 @@ export function configureRevenueCat(): boolean {
     if (__DEV__) {
       Purchases.setLogLevel(LOG_LEVEL.DEBUG);
     }
+    // PRIVACY: from this point on, the RevenueCat SDK can talk to
+    // RevenueCat's servers on its own (purchases, restores, entitlement
+    // syncs) — see the file-level PRIVACY note above for exactly what
+    // that does and doesn't include.
     Purchases.configure({ apiKey });
     configuredSuccessfully = true;
   } catch (error) {
