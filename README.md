@@ -76,6 +76,47 @@ this up on a Mac: `npm install && npx expo run:ios` (or open in Expo Go /
 a dev client) is the next step, and the exercise detail screens
 (`ExerciseDetailScreen`) are the highest-value place to look first.
 
+## Testing
+
+```bash
+npm test         # run the suite once
+npm run test:watch
+```
+
+Jest (via `jest-expo`, matched to this Expo SDK version) covers the logic
+that matters most to get right before any real money or medical-adjacent
+timing is on the line:
+
+- `src/utils/__tests__/pregnancyDates.test.ts` — trimester/postpartum-week
+  resolution for both the due-date and trying-to-conceive paths, trimester
+  boundary weeks (13→14, 27→28), the exact 12-months-postpartum boundary
+  instant (inclusive), a Feb 29 leap-year delivery date (clamped to Feb 28
+  the following year, per `date-fns`), early/preterm delivery and
+  pregnancy-loss handling (confirms the app switches straight to a sane
+  postpartum phase rather than crashing or going negative — see the test
+  file's comments for what this does *not* claim about UX/tone), and
+  timezone-change behavior (verified to actually flip the computed local
+  calendar day between two extreme-offset zones, not just a no-op check).
+- `src/state/__tests__/journeyStore.test.ts` — the Journey lifecycle
+  (start/archive, never deleting history) and `runAutoArchiveSweep()` at,
+  just before, and just after its boundary instant, using
+  `jest.setSystemTime()` for a controllable "now". Also confirms a Journey
+  Pass never carries over to a new Journey.
+- `src/premium/__tests__/entitlements.test.ts` — `isPremiumActiveForJourney`
+  and `needsRenewalPrompt` across every pass/subscription/archived-Journey
+  combination.
+
+`jest.setup.js` pins the test process to `TZ=UTC` for determinism and swaps
+in `@react-native-async-storage/async-storage`'s official Jest mock. CI runs
+`tsc --noEmit` and `jest --ci` on every push/PR — see
+`.github/workflows/test.yml`.
+
+Not yet covered: component/screen-level tests (e.g. rendering
+`ExerciseDetailScreen` and asserting premium-gating behavior), and anything
+in `AnatomicalFigure.tsx`'s actual animation runtime (a unit test can't
+observe on-device Reanimated/Fabric behavior — see "What's been verified,
+and where" above).
+
 ## Where things live
 
 ```
