@@ -8,6 +8,11 @@ for a future pregnancy without losing anything.
 Built with Expo (React Native), following the AI-coding build path from the
 product spec.
 
+**Trying to get this onto the App Store? Start at `LAUNCH_CHECKLIST.md`** —
+it's the single ordered path from here to a real listing, and says plainly
+which parts are code-complete versus which need a licensed clinician, your
+own business accounts, or a physical device.
+
 ## Stack
 
 - **Expo SDK 57 / React Native 0.86 / React 19**, TypeScript, New Architecture.
