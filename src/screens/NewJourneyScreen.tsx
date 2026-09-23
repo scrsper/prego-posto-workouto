@@ -47,9 +47,30 @@ export function NewJourneyScreen({ navigation }: Props) {
       Alert.alert('Enter a due date', 'Please enter a valid month, day, and 4-digit year.');
       return;
     }
+    if (monthNum < 1 || monthNum > 12 || dayNum < 1 || dayNum > 31) {
+      Alert.alert('That date doesn’t look right', 'Month should be 1–12 and day should be 1–31.');
+      return;
+    }
     const dueDate = new Date(yearNum, monthNum - 1, dayNum);
-    if (Number.isNaN(dueDate.getTime())) {
+    // JS Date silently rolls over an out-of-range day (e.g. Feb 30) into
+    // the following month instead of producing an Invalid Date — a
+    // round-trip check is the only reliable way to catch that, since
+    // Number.isNaN(dueDate.getTime()) never fires for a rollover.
+    const rolledOver =
+      dueDate.getMonth() !== monthNum - 1 || dueDate.getDate() !== dayNum || dueDate.getFullYear() !== yearNum;
+    if (Number.isNaN(dueDate.getTime()) || rolledOver) {
       Alert.alert('That date doesn’t look right', 'Please double-check the date and try again.');
+      return;
+    }
+    const oneYearAgo = new Date();
+    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+    const oneYearFromNow = new Date();
+    oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
+    if (dueDate < oneYearAgo || dueDate > oneYearFromNow) {
+      Alert.alert(
+        'Double-check that year',
+        'A due date is usually within about a year of today — please confirm the year you entered.'
+      );
       return;
     }
     const newId = startNewJourney({ conceptionMode: 'due_date', estimatedDueDate: dueDate.toISOString() });

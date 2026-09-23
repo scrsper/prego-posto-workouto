@@ -14,6 +14,7 @@ import type { BodyVariant, MuscleGroupId } from '../types/journey';
 import {
   BODY_SILHOUETTES,
   FIGURE_VIEW_BOX,
+  MUSCLE_GROUP_LABELS,
   muscleShapesFor,
   type MuscleShape,
 } from './anatomy/muscleGeometry';
@@ -37,6 +38,49 @@ export interface AnatomicalFigureProps {
   repTempoSeconds?: number;
   size?: number;
   showCesareanScar?: boolean;
+  /** Optional exercise name, folded into the VoiceOver label for extra context. */
+  exerciseName?: string;
+}
+
+const BODY_VARIANT_LABELS: Record<BodyVariant, string> = {
+  neutral: 'a neutral body',
+  pregnant: 'a pregnant body',
+  postpartum: 'a postpartum body',
+};
+
+/**
+ * Builds the single text equivalent VoiceOver/TalkBack announces for this
+ * figure. The pulse animation itself conveys nothing to a screen-reader
+ * user — this label is the only way they get "which muscles, doing what"
+ * out of this component, so it must actually say that, not just "diagram".
+ */
+function buildAccessibilityLabel(
+  variant: BodyVariant,
+  highlightedMuscles: MuscleGroupId[],
+  repTempoSeconds: number,
+  exerciseName?: string
+): string {
+  const bodyDescription = BODY_VARIANT_LABELS[variant];
+  const prefix = exerciseName
+    ? `Muscle diagram for ${exerciseName}, showing ${bodyDescription}.`
+    : `Muscle diagram showing ${bodyDescription}.`;
+
+  if (highlightedMuscles.length === 0) {
+    return `${prefix} No specific muscle group is highlighted for this exercise.`;
+  }
+
+  const muscleList = highlightedMuscles.map((muscle) => MUSCLE_GROUP_LABELS[muscle]).join(' and ');
+  const activeMuscles =
+    highlightedMuscles.length === 1
+      ? `The ${muscleList} is highlighted`
+      : `The ${muscleList} are highlighted`;
+
+  const movementDescription =
+    repTempoSeconds > 0
+      ? `pulsing every ${repTempoSeconds} second${repTempoSeconds === 1 ? '' : 's'} to match the pace of this movement`
+      : 'shown as the muscles this exercise targets';
+
+  return `${prefix} ${activeMuscles}, ${movementDescription}.`;
 }
 
 type MuscleAnimatedProps = { fillOpacity: number };
@@ -122,10 +166,15 @@ export function AnatomicalFigure({
   repTempoSeconds = 4,
   size = 240,
   showCesareanScar = false,
+  exerciseName,
 }: AnatomicalFigureProps) {
   const pulseProgress = useSharedValue(0);
   const silhouette = BODY_SILHOUETTES[variant];
   const highlightedSet = useMemo(() => new Set(highlightedMuscles), [highlightedMuscles]);
+  const accessibilityLabel = useMemo(
+    () => buildAccessibilityLabel(variant, highlightedMuscles, repTempoSeconds, exerciseName),
+    [variant, highlightedMuscles, repTempoSeconds, exerciseName]
+  );
 
   useEffect(() => {
     if (repTempoSeconds <= 0 || highlightedMuscles.length === 0) {
@@ -151,7 +200,18 @@ export function AnatomicalFigure({
   const height = FIGURE_VIEW_BOX.height * scale;
 
   return (
-    <View style={[styles.container, { width: size, height }]}>
+    <View
+      style={[styles.container, { width: size, height }]}
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel={accessibilityLabel}
+      // The SVG beneath is purely decorative once this label exists —
+      // without this, some screen readers will still try to walk into the
+      // dozens of individual shapes below and announce nothing useful for
+      // each one. importantForAccessibility is Android-only; iOS respects
+      // the parent's `accessible` flag on its own.
+      importantForAccessibility="no-hide-descendants"
+    >
       <Svg
         width={size}
         height={height}

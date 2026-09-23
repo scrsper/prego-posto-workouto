@@ -53,10 +53,19 @@ export function ExerciseLibraryScreen({ navigation }: MainTabScreenProps<'Exerci
     <ScreenContainer scroll={false}>
       <Text style={[typography.title, { marginBottom: spacing.sm }]}>Exercise Library</Text>
       <FlatList
+        style={{ flex: 1 }}
         data={sortedExercises}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
-        contentContainerStyle={{ gap: spacing.sm, paddingBottom: spacing.xl }}
+        contentContainerStyle={{ gap: spacing.sm, paddingBottom: spacing.xl, flexGrow: 1 }}
+        ListEmptyComponent={
+          <Card>
+            <Text style={typography.heading}>No exercises to show</Text>
+            <Text style={{ ...typography.body, color: colors.textMuted }}>
+              That's unexpected — try restarting the app. If this keeps happening, please let us know.
+            </Text>
+          </Card>
+        }
       />
       {!isPremium ? (
         <Text style={{ ...typography.caption, color: colors.textMuted, paddingVertical: spacing.sm }}>

@@ -8,6 +8,11 @@ for a future pregnancy without losing anything.
 Built with Expo (React Native), following the AI-coding build path from the
 product spec.
 
+**Trying to get this onto the App Store? Start at `LAUNCH_CHECKLIST.md`** —
+it's the single ordered path from here to a real listing, and says plainly
+which parts are code-complete versus which need a licensed clinician, your
+own business accounts, or a physical device.
+
 ## Stack
 
 - **Expo SDK 57 / React Native 0.86 / React 19**, TypeScript, New Architecture.
@@ -75,6 +80,47 @@ navigation gesture behavior, and general on-device feel. If you're picking
 this up on a Mac: `npm install && npx expo run:ios` (or open in Expo Go /
 a dev client) is the next step, and the exercise detail screens
 (`ExerciseDetailScreen`) are the highest-value place to look first.
+
+## Testing
+
+```bash
+npm test         # run the suite once
+npm run test:watch
+```
+
+Jest (via `jest-expo`, matched to this Expo SDK version) covers the logic
+that matters most to get right before any real money or medical-adjacent
+timing is on the line:
+
+- `src/utils/__tests__/pregnancyDates.test.ts` — trimester/postpartum-week
+  resolution for both the due-date and trying-to-conceive paths, trimester
+  boundary weeks (13→14, 27→28), the exact 12-months-postpartum boundary
+  instant (inclusive), a Feb 29 leap-year delivery date (clamped to Feb 28
+  the following year, per `date-fns`), early/preterm delivery and
+  pregnancy-loss handling (confirms the app switches straight to a sane
+  postpartum phase rather than crashing or going negative — see the test
+  file's comments for what this does *not* claim about UX/tone), and
+  timezone-change behavior (verified to actually flip the computed local
+  calendar day between two extreme-offset zones, not just a no-op check).
+- `src/state/__tests__/journeyStore.test.ts` — the Journey lifecycle
+  (start/archive, never deleting history) and `runAutoArchiveSweep()` at,
+  just before, and just after its boundary instant, using
+  `jest.setSystemTime()` for a controllable "now". Also confirms a Journey
+  Pass never carries over to a new Journey.
+- `src/premium/__tests__/entitlements.test.ts` — `isPremiumActiveForJourney`
+  and `needsRenewalPrompt` across every pass/subscription/archived-Journey
+  combination.
+
+`jest.setup.js` pins the test process to `TZ=UTC` for determinism and swaps
+in `@react-native-async-storage/async-storage`'s official Jest mock. CI runs
+`tsc --noEmit` and `jest --ci` on every push/PR — see
+`.github/workflows/test.yml`.
+
+Not yet covered: component/screen-level tests (e.g. rendering
+`ExerciseDetailScreen` and asserting premium-gating behavior), and anything
+in `AnatomicalFigure.tsx`'s actual animation runtime (a unit test can't
+observe on-device Reanimated/Fabric behavior — see "What's been verified,
+and where" above).
 
 ## Where things live
 
@@ -181,12 +227,16 @@ The model now has two independent, honestly-modeled entitlement sources:
   where you'd offer a RevenueCat promotional offer instead of a fresh
   purchase flow.
 
-`mockPurchaseJourneyPass` / `mockActivateSubscription` /
-`mockDeactivateSubscription` in `entitlements.ts` are the integration seam
-for RevenueCat (`react-native-purchases`): replace them with real purchase
-calls, and drive `EntitlementState` from RevenueCat's `CustomerInfo`
-listener instead of local mutation. The ~85/15 free/premium split from the
-spec is reflected in `isPremium` flags across `src/data/exercises.ts` and
+RevenueCat (`react-native-purchases`) is wired in for real — see
+"RevenueCat setup" below for what that means in practice and what's still
+unverified. `entitlements.ts` stays purely local/pure-function (no SDK
+import): `recordJourneyPassPurchase` and `setSubscriptionActive` are plain
+state writers that `journeyStore.ts` calls either after a real RevenueCat
+purchase succeeds, or directly (dev/Expo Go fallback) when RevenueCat isn't
+configured — see `src/premium/revenueCat.ts` for the SDK wrapper and its
+long comment on why Journey Pass ownership is tracked locally rather than
+as a RevenueCat entitlement. The ~85/15 free/premium split from the spec is
+reflected in `isPremium` flags across `src/data/exercises.ts` and
 `src/data/articles.ts`.
 
 **App Store Connect setup**: this needs **two separate IAP products** —
@@ -197,20 +247,281 @@ plan. They are different product types in App Store Connect and are not
 interchangeable — don't try to model the Journey Pass as an auto-renewable
 product with quantity 1, since that still auto-renews unless cancelled.
 
+## RevenueCat setup
+
+The SDK integration is real code (`react-native-purchases@10.8.1`,
+`src/premium/revenueCat.ts`, wired into `journeyStore.ts` and
+`PaywallScreen`), but **no purchase has actually been tested against
+RevenueCat or the App Store**, sandbox or otherwise — this sandboxed
+environment has no Apple Developer account, no App Store Connect access,
+no RevenueCat dashboard account, and (per the device-verification pass
+above) no simulator/device to run a native build on at all. Everything
+below is the setup + test runbook for whoever picks this up with real
+credentials and hardware, written from having actually implemented against
+the installed SDK's real TypeScript types (not from memory/guesswork).
+
+### One-time setup
+
+1. **App Store Connect**: create two In-App Purchase products.
+   - A **Non-Renewing Subscription** (or Non-Consumable, if you'd rather it
+     read as a literal one-time unlock with no built-in "duration" concept)
+     for the **Full Journey Pass**. Do not use an auto-renewable product
+     here even at "quantity 1" — it will still auto-renew unless the user
+     cancels it, defeating the entire point of this being the pause-free
+     option.
+   - The existing **auto-renewable subscription** product for the $9.99/mo
+     plan, in its own subscription group.
+2. **RevenueCat dashboard**: create a project, connect the App Store
+   Connect app, then:
+   - Create an **entitlement** (e.g. `premium_subscription` — must match
+     `SUBSCRIPTION_ENTITLEMENT_ID` in `src/premium/revenueCatConfig.ts`)
+     and attach ONLY the auto-renewable subscription product to it. Do
+     **not** attach the Journey Pass product to any entitlement — see the
+     long comment at the top of `revenueCat.ts` for why.
+   - Create an **Offering** (id `default`, matching `DEFAULT_OFFERING_ID`)
+     with two **Packages**: one wrapping the Journey Pass product (custom
+     package identifier `journey_pass`, matching `JOURNEY_PASS_PACKAGE_ID`)
+     and one wrapping the subscription product (the built-in `$rc_monthly`
+     package type is the default match for `MONTHLY_SUBSCRIPTION_PACKAGE_ID`
+     — keep it, or update the config constant if you rename it).
+   - Grab the **public** iOS (and Android, if you build for it) API key
+     from Project Settings → API Keys.
+3. Copy `.env.example` to `.env` and fill in
+   `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` (and `_ANDROID_API_KEY`) with those
+   keys. These are public SDK keys meant to ship in the client — never put
+   RevenueCat's separate REST API *secret* key in app code.
+4. **This is a native module — Expo Go will not work.** Build a custom dev
+   client (`npx expo run:ios`, or `eas build --profile development`) or a
+   full release/TestFlight build. Without a dev client, `configureRevenueCat()`
+   will always report failure and the app will silently keep using the
+   local mock (which is safe, but obviously isn't what you want to test).
+
+### Testing with a sandbox account
+
+1. Create a Sandbox Apple ID in App Store Connect (Users and Access →
+   Sandbox → Testers) if you don't already have one, and sign into it on
+   the test device under Settings → App Store → Sandbox Account (iOS 17
+   splits this out from your regular Apple ID — don't sign into it as your
+   main iCloud account).
+2. Run the dev client build on that device and open the Paywall screen. If
+   `purchasesInitialized` is true (no yellow warning card at the top of the
+   screen), RevenueCat configured successfully.
+3. **Journey Pass purchase**: tap "Get the Journey Pass". Confirm the
+   sandbox purchase sheet appears, complete it, and confirm
+   `ExerciseLibraryScreen`'s premium items unlock immediately for the
+   active Journey.
+4. **Subscription purchase**: tap "Start monthly subscription" the same
+   way. Confirm the "Manage subscription in Settings" link actually opens
+   the App Store subscriptions screen for that sandbox account.
+5. **Restore**: on a second device (or after deleting and reinstalling the
+   dev client on the same device) signed into the same sandbox account, tap
+   "Restore purchases". The subscription should reactivate correctly. The
+   Journey Pass will NOT re-associate with its original Journey — see the
+   known limitation below; this is expected, not a bug to chase.
+6. **Renewal flow**: archive the Journey (Settings → "End this Journey"),
+   start a new one, and confirm you land on the Paywall automatically
+   (`needsRenewalPrompt`) with "Welcome back" framing, rather than premium
+   silently carrying over.
+7. **Live entitlement sync**: with the app open, cancel the sandbox
+   subscription from Settings, then background/foreground the app (or wait
+   for RevenueCat's periodic sync) and confirm `subscriptionActive` flips
+   off via the `addCustomerInfoUpdateListener` wiring in
+   `initializePurchases`, without needing to reopen the Paywall screen.
+
+### Known limitation: Journey Pass restore can't reconstruct which Journey it was for
+
+RevenueCat's `CustomerInfo.nonSubscriptionTransactions` can tell you a
+Journey Pass product was purchased and when — it has no concept of "which
+Journey" because that's an app-specific idea, not a store one. Journey
+Pass → Journey-id association lives only in this app's local
+`entitlement.journeyPassIds`, in AsyncStorage. Reinstalling the app or
+switching devices loses that mapping even though `restorePurchases()`
+correctly confirms *a* purchase happened. There are two real fixes, neither
+implemented here:
+- Sync `journeys` (and thus `entitlement.journeyPassIds`) to a backend
+  (Supabase/Firebase — see "Known gaps" below), so the mapping survives a
+  reinstall independent of RevenueCat entirely.
+- Or, if a given Journey Pass product is only ever meant to be purchased
+  once per account (not one-per-Journey), collapse the model to a single
+  lifetime `hasJourneyPass: boolean` instead of a per-Journey list —
+  but that's a real product-scope change (it would mean a second pregnancy
+  doesn't need a second purchase at all), not just an engineering fix, so
+  it needs a decision, not a silent code change.
+
+## Accessibility
+
+This was a source-level audit and fix pass — real VoiceOver/TalkBack
+verification on a device is still outstanding, same constraint as the rest
+of this session (no simulator/device access). What was checked and what
+was found/fixed:
+
+- **`AnatomicalFigure.tsx`'s muscle-pulse animation had no text
+  equivalent at all** — a screen-reader user got nothing from it. Fixed:
+  the whole figure is now one `accessible` node with
+  `accessibilityRole="image"` and a generated label naming the body
+  variant, which muscle group(s) are highlighted (from
+  `MUSCLE_GROUP_LABELS`), and the movement's rep pace (e.g. "pulsing every
+  4 seconds to match the pace of this movement") — see
+  `buildAccessibilityLabel` in that file. `importantForAccessibility="no-hide-descendants"`
+  keeps the dozens of individual decorative SVG shapes from being
+  individually walkable/announced. `ExerciseDetailScreen` passes the
+  exercise name through for extra context.
+- **Dynamic Type**: audited every screen for `numberOfLines`,
+  `allowFontScaling={false}`, `maxFontSizeMultiplier`, fixed-height text
+  containers, and `overflow: hidden` — found none. Exercise steps, safety
+  warnings (`SafetyWarnings`), and the red-flag checklist all wrap in
+  flexible containers with no font-scale caps, so they grow rather than
+  clip at larger accessibility text sizes. Not independently verified on a
+  device at the largest accessibility sizes (that would be the next step
+  with a simulator/device in hand). One known platform-level caveat, not
+  fixable in app code: React Navigation's bottom tab bar labels can get
+  visually tight at the largest Dynamic Type sizes — a general constraint
+  of tab bars, not something specific to this app.
+- **Tap targets**: audited every `Pressable`/button against the ~44×44pt
+  guideline. Found and fixed three real under-sized targets:
+  - The mood/symptom/tag toggle chips (`DailyCheckInScreen`,
+    `SettingsScreen`) were ~24-28pt tall. Extracted into a single shared
+    `ToggleChip` component (`src/components/Basics.tsx`) with `hitSlop`
+    extending the tappable area to the full guideline size without
+    changing how compact they look, plus `accessibilityState={{selected}}`
+    (previously missing entirely — a screen reader had no way to announce
+    a chip's toggle state).
+  - The clearance-acknowledgment checkbox row got `hitSlop`,
+    `accessibilityRole="checkbox"`, and `accessibilityState={{checked}}`
+    (previously just read as unstated body text).
+  - `PremiumLockedNotice`'s "See premium options" button (~36pt) now
+    reuses the shared `PrimaryButton`, which is both properly sized and
+    carries `accessibilityRole="button"`.
+  - `PrimaryButton`/`SecondaryButton` (used for essentially every action
+    in the app, including the Kick Counter's "I felt a kick" and the
+    Contraction Timer's start/stop controls — the screens called out
+    specifically for tap-speed) were already comfortably over the
+    guideline size; added explicit `accessibilityRole="button"` and
+    `accessibilityState={{disabled}}` to both for completeness.
+
+## Privacy
+
+`PRIVACY_POLICY.md` and `APP_STORE_PRIVACY.md` at the project root are
+drafts, traced against actual data flows in this codebase (there are
+exactly two: everything the user enters stays in local `AsyncStorage`
+— `src/state/journeyStore.ts` — and RevenueCat is the one place data
+leaves the device — flagged inline with `PRIVACY:` comments at its call
+sites in `src/premium/revenueCat.ts`). No analytics, crash reporting, or
+custom backend exists in this codebase as of this writing; if you add any
+of those, update both documents in the same change — they say so
+explicitly.
+
+**Both documents are drafts and say so at the top.** Neither has been
+reviewed by a lawyer or privacy professional, and this is a health-adjacent
+app collecting pregnancy/postpartum data — that review is not optional
+before a real launch. There's also no in-app "View Privacy Policy" screen
+yet and no hosted URL for one; App Store Connect requires a privacy policy
+URL regardless, so publishing `PRIVACY_POLICY.md` somewhere reachable is a
+prerequisite for submission, not just a nice-to-have.
+
+## App Store review access (demo mode)
+
+Since premium is gated behind a real purchase, reviewers need a way to see
+it without paying. `src/premium/demoMode.ts` implements a hidden unlock: on
+the Settings screen, tapping "About" 7 times within ~2.5 seconds reveals a
+code entry field; the correct code sets `entitlement.demoModeEnabled`,
+which makes `isPremiumActiveForJourney` return true unconditionally (see
+`entitlements.ts`) — no purchase, no RevenueCat interaction, unlocked for
+every Journey including archived ones. It's off by default, persisted
+locally once enabled, and reversible from a visible "Turn off demo mode"
+card that appears once it's on.
+
+**`APP_REVIEW_NOTES.md`** has the actual text to paste into App Store
+Connect's review-notes field, plus an important caveat: the default code
+committed in this repo is not a real secret once this repo has been shared
+with anyone — rotate it via `EXPO_PUBLIC_DEMO_MODE_CODE` before a real
+submission. The gesture itself was implemented and typechecked in this
+session but never tapped through on a real device — verify it on an actual
+TestFlight build before relying on reviewers to be the first to try it.
+
+## Polish pass
+
+A few smaller fixes and refinements, in the order they were tackled:
+
+- **App icon and splash screen.** The app previously had no configured
+  splash screen at all — added `expo-splash-screen` (the plugin entry in
+  `app.json`) with `SplashScreen.preventAutoHideAsync()` in `App.tsx` and
+  `SplashScreen.hideAsync()` in `RootNavigator.tsx` once the Journey store
+  finishes rehydrating, so there's no blank-frame flash between the native
+  splash and first render. The splash background color (`#FFFBF8`) now
+  matches `colors.background` from the theme. **The actual icon and splash
+  artwork are still Expo's generic template placeholders** (`assets/icon.png`,
+  `assets/splash-icon.png`, etc.) — real branded artwork is a separate,
+  unstarted design task, same caveat as the anatomical SVG rig and the
+  clinical content.
+- **Onboarding date-entry bug fix.** `NewJourneyScreen`'s due-date fields
+  had a real correctness bug: JS's `Date` constructor silently *rolls over*
+  an out-of-range month or day (e.g. day 32, or Feb 30) into the following
+  month/year instead of producing an `Invalid Date` — so a typo like "13"
+  for the month could silently create a wildly wrong due date with no
+  error shown, corrupting every downstream trimester/postpartum
+  calculation from the very first screen a user fills in. Fixed with
+  explicit month/day bounds checks, a round-trip check (re-reading the
+  constructed date's month/day/year and comparing against what was typed)
+  to catch any rollover, and a sanity check that the due date is within
+  about a year of today.
+- **Empty states.** `JourneyArchiveScreen`'s empty state got friendlier,
+  context-aware copy (different wording depending on whether a Journey is
+  currently active) that reinforces the "nothing is ever deleted" value
+  proposition instead of a bare "No archived Journeys yet." `ExerciseLibraryScreen`
+  and `ArticlesScreen` got `ListEmptyComponent`s too — their underlying
+  data is a static, always-non-empty array today, so this can't currently
+  trigger, but it's cheap insurance against a future filter/search feature
+  (or a data-loading bug) silently rendering a blank screen instead of an
+  explanation.
+- **Offline handling.** Audited and confirmed: the only networked
+  subsystem in this app is RevenueCat (see "Privacy" above) — every other
+  screen, including the entire safety framework (red-flag checklist,
+  disclaimer, exercise/article content, daily check-ins, kick counter,
+  contraction timer), is backed by local `AsyncStorage` and static data
+  files with zero network dependency, so it all works identically with no
+  connection at all. `src/premium/revenueCat.ts`'s wrapper functions
+  already caught and gracefully degraded every SDK call before this pass
+  (returning `null`/an error-shaped result rather than throwing); what was
+  missing was test coverage proving it. Added
+  `src/premium/__tests__/revenueCat.test.ts` (8 new tests, using
+  `jest.isolateModules` to simulate a configured-but-offline RevenueCat
+  SDK) covering: `configureRevenueCat` failing without throwing, offerings
+  fetch failing → `null`, a purchase failing with a network error vs. a
+  user cancellation (different result shapes), and restore/getCustomerInfo
+  failing → `null` (so cached local entitlement state is left untouched
+  rather than being reset). `journeyStore.ts`'s `initializePurchases`/
+  `restorePurchases` already only update local state on a non-null result,
+  so a user who was subscribed before going offline stays unlocked.
+
+tsc, the full Jest suite (60 tests), and an `expo export --platform web`
+bundle all stay green throughout this pass too.
+
 ## Known gaps / next steps
 
 - **An actual on-device/simulator run.** See "What's been verified, and
   where" above — this has never been launched on a real iOS device,
   simulator, or Android emulator. Do this before shipping, with particular
-  attention to `AnatomicalFigure.tsx`'s pulse animation.
+  attention to `AnatomicalFigure.tsx`'s pulse animation and, per the
+  Accessibility section, an actual VoiceOver/TalkBack pass and a check at
+  the largest Dynamic Type sizes — this session could audit the code but
+  not verify runtime screen-reader behavior. Also confirm the demo-mode
+  tap gesture (see "App Store review access" below) actually works on a
+  real TestFlight build before submitting.
 - Real commissioned anatomical illustrations (see above).
+- Real app icon and splash screen artwork — currently Expo's generic
+  template placeholders (see "Polish pass" above).
 - Clinical review of all safety/exercise/article content (see above, and
   work through `CONTENT_REVIEW_CHECKLIST.md` at the project root). Every
   entry in `exercises.ts`/`articles.ts` carries a `contentReviewStatus:
   'needs_clinical_review'` field until a named reviewer has actually
   checked it off. Running the app in dev mode (`__DEV__`) shows a red
   banner and logs a console warning as a standing reminder of this.
-- RevenueCat integration (currently mocked locally).
+- RevenueCat sandbox/production purchase testing (SDK is wired in; nothing
+  has actually been purchased against it — see "RevenueCat setup" above).
+- The Journey Pass restore-across-reinstall limitation described above
+  (needs either backend sync of Journey data, or a product-scope decision
+  to make the pass a one-time lifetime purchase instead of per-Journey).
 - Cloud sync (Supabase/Firebase) for cross-device Journey history — the
   Zustand store's `partialize`d shape is already the natural sync payload.
 - Cross-Journey analytics charts (`JourneyArchiveScreen` has a labeled slot
@@ -218,3 +529,6 @@ product with quantity 1, since that still auto-renews unless cancelled.
 - Downloadable clearance/progress PDF summary for OB/PT visits.
 - Partner/family viewer seat (auth + a read-only view are not built).
 - Push notifications (daily check-in reminders, red-flag follow-ups).
+- Legal review and hosting of `PRIVACY_POLICY.md`, and an in-app link to
+  it, plus the real App Store Connect "App Privacy" questionnaire submission
+  (draft in `APP_STORE_PRIVACY.md`) — see "Privacy" above.

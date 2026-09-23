@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import * as SplashScreen from 'expo-splash-screen';
 import type { RootStackParamList } from './types';
 import { useJourneyStore } from '../state/journeyStore';
 import { MainTabs } from './MainTabs';
@@ -22,10 +23,23 @@ export function RootNavigator() {
   const hasHydrated = useJourneyStore((state) => state.hasHydrated);
   const activeJourneyId = useJourneyStore((state) => state.activeJourneyId);
   const runAutoArchiveSweep = useJourneyStore((state) => state.runAutoArchiveSweep);
+  const initializePurchases = useJourneyStore((state) => state.initializePurchases);
 
   useEffect(() => {
-    if (hasHydrated) runAutoArchiveSweep();
+    if (hasHydrated) {
+      runAutoArchiveSweep();
+      SplashScreen.hideAsync().catch(() => {
+        // Safe to ignore — e.g. already hidden.
+      });
+    }
   }, [hasHydrated, runAutoArchiveSweep]);
+
+  useEffect(() => {
+    // Configures RevenueCat (no-op/falls back to the local mock if it
+    // isn't available — e.g. Expo Go, or no API key set) and syncs
+    // subscriptionActive with whatever RevenueCat currently reports.
+    initializePurchases();
+  }, [initializePurchases]);
 
   if (!hasHydrated) return null;
 

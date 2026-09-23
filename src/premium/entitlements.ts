@@ -47,12 +47,21 @@ export interface EntitlementState {
   subscriptionActive: boolean;
   /** Lifetime flag: has this account ever purchased premium via either path. Used for renewal/win-back messaging only. */
   hasEverPurchased: boolean;
+  /**
+   * App Store reviewer / QA demo unlock — see src/premium/demoMode.ts.
+   * Defaults false and requires a hidden gesture + secret code to enable
+   * (SettingsScreen), so it never ships "on" and can't be flipped by an
+   * ordinary user browsing the app normally. When true, unlocks premium
+   * for every Journey without a real purchase.
+   */
+  demoModeEnabled: boolean;
 }
 
 export const initialEntitlementState: EntitlementState = {
   journeyPassIds: [],
   subscriptionActive: false,
   hasEverPurchased: false,
+  demoModeEnabled: false,
 };
 
 /**
@@ -60,13 +69,16 @@ export const initialEntitlementState: EntitlementState = {
  * A Journey Pass purchased for this Journey always unlocks it, even after
  * archive. An active subscription unlocks premium for whichever Journey is
  * currently active (it can't distinguish Journeys), so it does not unlock
- * an already-archived Journey once a different one becomes active.
+ * an already-archived Journey once a different one becomes active. Demo
+ * mode (see EntitlementState.demoModeEnabled) unconditionally unlocks
+ * everything, for App Store review / QA.
  */
 export function isPremiumActiveForJourney(
   entitlement: EntitlementState,
   journey: Journey | null
 ): boolean {
   if (!journey) return false;
+  if (entitlement.demoModeEnabled) return true;
   if (entitlement.journeyPassIds.includes(journey.id)) return true;
   if (entitlement.subscriptionActive && journey.status === 'active') return true;
   return false;
@@ -83,7 +95,14 @@ export function needsRenewalPrompt(entitlement: EntitlementState, newJourney: Jo
   return entitlement.hasEverPurchased && !isPremiumActiveForJourney(entitlement, newJourney);
 }
 
-export function mockPurchaseJourneyPass(entitlement: EntitlementState, journeyId: string): EntitlementState {
+/**
+ * Records that `journeyId` now has a purchased Journey Pass. Pure local
+ * state — the caller (journeyStore) is responsible for having already
+ * confirmed the purchase actually happened, whether via a real RevenueCat
+ * purchase or (in a build with no RevenueCat API key configured, e.g.
+ * Expo Go) the local dev-only fallback.
+ */
+export function recordJourneyPassPurchase(entitlement: EntitlementState, journeyId: string): EntitlementState {
   if (entitlement.journeyPassIds.includes(journeyId)) return entitlement;
   return {
     ...entitlement,
@@ -92,18 +111,28 @@ export function mockPurchaseJourneyPass(entitlement: EntitlementState, journeyId
   };
 }
 
-export function mockActivateSubscription(entitlement: EntitlementState): EntitlementState {
-  return { ...entitlement, subscriptionActive: true, hasEverPurchased: true };
+/**
+ * Sets the (global, not Journey-scoped) subscription flag. Pure local
+ * state, meant to mirror whatever RevenueCat's `CustomerInfo` last reported
+ * — see journeyStore's `initializePurchases`/`restorePurchases`. A REAL
+ * subscription cannot be cancelled from in-app code — only the subscriber
+ * can cancel it, via iOS Settings > [Apple ID] > Subscriptions (or a
+ * RevenueCat-hosted manage-subscriptions link) — so passing `false` here
+ * should only ever happen because RevenueCat reported the subscription as
+ * no longer active, or (dev-only, with no RevenueCat configured) a local
+ * simulate-cancel control. See PaywallScreen.
+ */
+export function setSubscriptionActive(entitlement: EntitlementState, active: boolean): EntitlementState {
+  return {
+    ...entitlement,
+    subscriptionActive: active,
+    hasEverPurchased: entitlement.hasEverPurchased || active,
+  };
 }
 
-/**
- * Local-only bookkeeping for the mock. A REAL subscription cannot be
- * cancelled from in-app code — only the subscriber can cancel it, via iOS
- * Settings > [Apple ID] > Subscriptions (or a RevenueCat-hosted manage-
- * subscriptions link). See PaywallScreen's `openManageSubscriptions`.
- */
-export function mockDeactivateSubscription(entitlement: EntitlementState): EntitlementState {
-  return { ...entitlement, subscriptionActive: false };
+/** Pure local state setter for the demo-mode unlock — see EntitlementState.demoModeEnabled. */
+export function setDemoModeEnabled(entitlement: EntitlementState, enabled: boolean): EntitlementState {
+  return { ...entitlement, demoModeEnabled: enabled };
 }
 
 export interface PremiumFeatureFlags {

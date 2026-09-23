@@ -25,7 +25,12 @@ export function JourneyArchiveScreen({ navigation }: Props) {
 
       {archivedJourneys.length === 0 ? (
         <Card>
-          <Text style={{ ...typography.body, color: colors.textMuted }}>No archived Journeys yet.</Text>
+          <Text style={typography.heading}>Nothing archived yet</Text>
+          <Text style={{ ...typography.body, color: colors.textMuted }}>
+            {activeJourney
+              ? 'Your current Journey will show up here once it archives — automatically 12 months after delivery, or whenever you choose to end it early from Settings. Nothing is ever deleted.'
+              : 'Once you complete a Journey, it stays here permanently — even on the free tier — so you can look back on it or compare it to a future pregnancy.'}
+          </Text>
         </Card>
       ) : (
         archivedJourneys.map((journey) => {

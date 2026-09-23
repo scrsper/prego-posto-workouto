@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { Alert, Pressable, Text, TextInput, View } from 'react-native';
+import { Alert, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 import { useJourneyStore } from '../state/journeyStore';
 import { RED_FLAG_SYMPTOMS } from '../data/redFlagSymptoms';
-import { Card, PrimaryButton, ScreenContainer } from '../components/Basics';
+import { Card, PrimaryButton, ScreenContainer, ToggleChip } from '../components/Basics';
 import { colors, radii, spacing, typography } from '../theme/theme';
 import type { DailyCheckIn } from '../types/journey';
 
@@ -21,24 +21,6 @@ const COMMON_SYMPTOMS = [
   'Incision soreness',
   'Mood changes',
 ];
-
-function ToggleChip({ label, selected, onToggle }: { label: string; selected: boolean; onToggle: () => void }) {
-  return (
-    <Pressable
-      onPress={onToggle}
-      style={{
-        paddingHorizontal: spacing.md,
-        paddingVertical: spacing.xs,
-        borderRadius: radii.pill,
-        borderWidth: 1,
-        borderColor: selected ? colors.primary : colors.border,
-        backgroundColor: selected ? colors.primary : colors.surface,
-      }}
-    >
-      <Text style={{ color: selected ? '#fff' : colors.text, ...typography.caption }}>{label}</Text>
-    </Pressable>
-  );
-}
 
 export function DailyCheckInScreen({ navigation }: Props) {
   const activeJourney = useJourneyStore((state) => state.activeJourney());
