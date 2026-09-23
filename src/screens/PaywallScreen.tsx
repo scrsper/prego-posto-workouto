@@ -1,139 +1,263 @@
-import React from 'react';
-import { Alert, Linking, Text } from 'react-native';
-import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { RootStackParamList } from '../navigation/types';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Linking, StyleSheet, Text, View } from 'react-native';
+import { SymbolView, type SFSymbol } from 'expo-symbols';
+import type { PurchasesPackage } from 'react-native-purchases';
+import type { RootStackScreenProps } from '../navigation/types';
 import { useJourneyStore } from '../state/journeyStore';
-import { isPremiumActiveForJourney, needsRenewalPrompt } from '../premium/entitlements';
-import { Card, PrimaryButton, ScreenContainer, SecondaryButton } from '../components/Basics';
-import { colors, typography } from '../theme/theme';
+import { useJourneyContext } from '../state/hooks';
+import { hasJourneyPass, isPremiumActiveForJourney, needsRenewalPrompt } from '../premium/entitlements';
+import {
+  billingMode,
+  errorMessage,
+  loadProducts,
+  openManageSubscriptions,
+  purchase,
+  restorePurchases,
+  type StoreProducts,
+} from '../premium/billing';
+import { APP_CONFIG } from '../config';
+import { Card, LinkButton, Muted, PrimaryButton, ScreenContainer, SecondaryButton, SectionTitle } from '../components/Basics';
+import { haptics } from '../utils/haptics';
+import { colors, spacing, typography } from '../theme/theme';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'Paywall'>;
+type Props = RootStackScreenProps<'Paywall'>;
 
-/**
- * Opens the platform's subscription-management surface. This is the only
- * way a user (or we) can actually cancel a real auto-renewing subscription
- * — there is no in-app "cancel" API. On a non-iOS device or if the deep
- * link fails, fall back to telling them where to look.
- */
-async function openManageSubscriptions() {
-  const url = 'itms-apps://apps.apple.com/account/subscriptions';
-  try {
-    const canOpen = await Linking.canOpenURL(url);
-    if (canOpen) {
-      await Linking.openURL(url);
-      return;
-    }
-  } catch {
-    // fall through to the alert below
-  }
-  Alert.alert(
-    'Manage your subscription',
-    'Open the App Store, tap your profile icon, then Subscriptions, to view or cancel this plan.'
-  );
-}
+const INCLUDED: { icon: SFSymbol; text: string }[] = [
+  { icon: 'person.crop.circle.badge.checkmark', text: 'Routines personalized for diastasis recti, C-section recovery, and multiples' },
+  { icon: 'figure.strengthtraining.functional', text: 'Advanced progression exercises (after provider clearance)' },
+  { icon: 'doc.text.fill', text: 'Shareable provider-visit summary of your check-ins, workouts, and tracking' },
+  { icon: 'book.fill', text: 'In-depth articles on diastasis recti and multiples pregnancies' },
+  { icon: 'chart.bar.xaxis', text: 'Compare recovery across Journeys' },
+];
+
+const MOCK_PRICES = { journeyPass: '$59.99', monthly: '$9.99' };
+
+type Busy = 'pass' | 'monthly' | 'restore' | null;
 
 export function PaywallScreen({ navigation }: Props) {
-  const activeJourney = useJourneyStore((state) => state.activeJourney());
+  const { journey } = useJourneyContext();
   const entitlement = useJourneyStore((state) => state.entitlement);
-  const purchaseJourneyPass = useJourneyStore((state) => state.purchaseJourneyPass);
-  const activateSubscription = useJourneyStore((state) => state.activateSubscription);
-  const deactivateSubscription = useJourneyStore((state) => state.deactivateSubscription);
+  const applyStoreSnapshot = useJourneyStore((state) => state.applyStoreSnapshot);
+  const mockPurchasePass = useJourneyStore((state) => state.mockPurchaseJourneyPass);
+  const mockSetSubscription = useJourneyStore((state) => state.mockSetSubscription);
 
-  const isActive = isPremiumActiveForJourney(entitlement, activeJourney);
-  const isRenewal = activeJourney ? needsRenewalPrompt(entitlement, activeJourney) : false;
-  const hasPassForThisJourney = !!activeJourney && entitlement.journeyPassIds.includes(activeJourney.id);
+  const [products, setProducts] = useState<StoreProducts | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<Busy>(null);
 
-  function handlePurchasePass() {
-    if (!activeJourney) {
-      Alert.alert('Start a Journey first', 'Premium is unlocked per Journey — start one from Home.');
-      return;
-    }
-    // Integration point: replace with a RevenueCat purchase of the
-    // non-renewing "Full Journey Pass" product, then call
-    // purchaseJourneyPass() from the resulting purchase-completed callback.
-    purchaseJourneyPass(activeJourney.id);
-    Alert.alert('Journey Pass unlocked', 'This Journey now has full premium access — permanently, no renewal needed.');
-    navigation.goBack();
+  const fetchProducts = useCallback(() => {
+    if (billingMode !== 'store') return;
+    setLoadError(null);
+    loadProducts()
+      .then(setProducts)
+      .catch((error) => setLoadError(errorMessage(error)));
+  }, []);
+
+  useEffect(fetchProducts, [fetchProducts]);
+
+  const isActive = isPremiumActiveForJourney(entitlement, journey);
+  const isRenewal = journey ? needsRenewalPrompt(entitlement, journey) : false;
+  const passForThisJourney = hasJourneyPass(entitlement, journey?.id);
+
+  const passPrice =
+    billingMode === 'store' ? products?.journeyPass?.product.priceString : billingMode === 'dev_mock' ? MOCK_PRICES.journeyPass : undefined;
+  const monthlyPrice =
+    billingMode === 'store' ? products?.monthly?.product.priceString : billingMode === 'dev_mock' ? MOCK_PRICES.monthly : undefined;
+
+  function requireJourney(): boolean {
+    if (journey) return true;
+    Alert.alert('Start a Journey first', 'Premium unlocks per Journey — start one from the Today tab.');
+    return false;
   }
 
-  function handleSubscribe() {
-    if (!activeJourney) {
-      Alert.alert('Start a Journey first', 'Premium is unlocked per Journey — start one from Home.');
+  function celebrate(title: string, message: string) {
+    haptics.success();
+    Alert.alert(title, message, [{ text: 'OK', onPress: () => navigation.goBack() }]);
+  }
+
+  async function buy(kind: 'pass' | 'monthly') {
+    if (!requireJourney()) return;
+    if (billingMode === 'dev_mock') {
+      if (kind === 'pass') mockPurchasePass(journey!.id);
+      else mockSetSubscription(true);
+      celebrate('Unlocked (dev mock)', 'No App Store purchase was made — this is a development build without a RevenueCat key.');
       return;
     }
-    // Integration point: replace with a RevenueCat purchase of the
-    // auto-renewing monthly subscription product. If `isRenewal` is true,
-    // this is a good place to instead present a RevenueCat promotional
-    // offer to a lapsed subscriber rather than the standard purchase flow.
-    activateSubscription();
-    Alert.alert('Subscribed', 'Your monthly subscription is active. Remember: you’ll need to cancel it yourself in Settings once you no longer need it.');
-    navigation.goBack();
+    const pkg: PurchasesPackage | null | undefined = kind === 'pass' ? products?.journeyPass : products?.monthly;
+    if (!pkg) return;
+    setBusy(kind);
+    try {
+      const outcome = await purchase(pkg);
+      if (outcome.status === 'cancelled') return;
+      applyStoreSnapshot(outcome.snapshot);
+      celebrate(
+        kind === 'pass' ? 'Journey Pass unlocked' : 'Subscription active',
+        kind === 'pass'
+          ? 'Premium is unlocked for this Journey — permanently, with nothing to cancel.'
+          : 'Premium is unlocked. Remember: it renews monthly until you cancel it in Settings.'
+      );
+    } catch (error) {
+      Alert.alert('Purchase didn’t go through', errorMessage(error));
+    } finally {
+      setBusy(null);
+    }
   }
+
+  async function restore() {
+    if (billingMode !== 'store') {
+      Alert.alert('Restore purchases', 'Purchases aren’t available in this build.');
+      return;
+    }
+    setBusy('restore');
+    try {
+      const snapshot = await restorePurchases();
+      applyStoreSnapshot(snapshot);
+      const state = useJourneyStore.getState();
+      const active = state.journeys.find((j) => j.id === state.activeJourneyId) ?? null;
+      if (isPremiumActiveForJourney(state.entitlement, active)) {
+        celebrate('Purchases restored', 'Premium is unlocked for your current Journey.');
+      } else {
+        Alert.alert(
+          'Nothing to restore',
+          snapshot.journeyPassTransactions.length > 0
+            ? 'We found an earlier Journey Pass, but it belongs to a previous Journey. A new Journey needs its own pass.'
+            : 'We couldn’t find an active purchase for this Apple ID.'
+        );
+      }
+    } catch (error) {
+      Alert.alert('Couldn’t restore purchases', errorMessage(error));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const loadingProducts = billingMode === 'store' && !products && !loadError;
 
   return (
     <ScreenContainer>
-      <Text style={typography.title}>{isRenewal ? 'Welcome back — renew premium' : 'Premium'}</Text>
-      <Text style={{ ...typography.body, color: colors.textMuted }}>
-        {isRenewal
-          ? 'You’ve had premium before. It doesn’t carry over automatically to a new Journey — pick how you’d like to unlock it again for this one.'
-          : 'Premium unlocks per Journey. The Full Journey Pass is a one-time purchase for this Journey — no renewal, no subscription to remember to cancel.'}
-      </Text>
+      <View style={styles.hero}>
+        <SymbolView name="sparkles" size={40} tintColor={colors.premium} style={{ width: 40, height: 40 }} />
+        <Text style={styles.title} accessibilityRole="header">
+          {isRenewal ? 'Welcome back' : 'Prego Posto Premium'}
+        </Text>
+        <Muted style={styles.center}>
+          {isRenewal
+            ? 'Premium doesn’t carry over to a new Journey automatically. Pick how you’d like to unlock it for this one.'
+            : 'One simple unlock for this whole pregnancy-to-postpartum Journey.'}
+        </Muted>
+      </View>
+
+      <Card>
+        {INCLUDED.map((item) => (
+          <View key={item.text} style={styles.included}>
+            <SymbolView name={item.icon} size={20} tintColor={colors.premium} style={{ width: 24, height: 24 }} />
+            <Text style={styles.includedText}>{item.text}</Text>
+          </View>
+        ))}
+      </Card>
 
       {isActive ? (
-        <Card style={{ borderColor: colors.premium }}>
-          <Text style={typography.heading}>
-            {hasPassForThisJourney ? 'Journey Pass active for this Journey' : 'Premium is active (via subscription)'}
-          </Text>
-          {!hasPassForThisJourney && entitlement.subscriptionActive ? (
+        <Card style={{ borderColor: colors.premium, borderWidth: 1 }}>
+          <SectionTitle>{passForThisJourney ? 'Journey Pass active for this Journey' : 'Premium active via subscription'}</SectionTitle>
+          {!passForThisJourney && entitlement.subscriptionActive ? (
             <>
-              <Text style={{ ...typography.body, color: colors.textMuted }}>
-                This is an auto-renewing subscription — it keeps billing monthly until you cancel it yourself.
-                We can’t cancel it for you from here; iOS doesn’t allow that.
-              </Text>
-              <SecondaryButton label="Manage subscription in Settings" onPress={openManageSubscriptions} />
+              <Muted>
+                This subscription renews monthly until you cancel it — including after this Journey ends. Apple
+                doesn’t let apps cancel for you.
+              </Muted>
+              <SecondaryButton label="Manage subscription" tone="premium" onPress={() => void openManageSubscriptions()} />
             </>
           ) : null}
         </Card>
       ) : null}
 
-      <Card style={{ borderColor: colors.primary }}>
-        <Text style={typography.heading}>Full Journey Pass — $59.99, one time</Text>
-        <Text style={{ ...typography.body, color: colors.textMuted }}>
-          Covers this entire pregnancy-through-12-months-postpartum arc. Never renews, never bills again, and
-          stays unlocked for this Journey permanently — including after it archives.
-        </Text>
-        <PrimaryButton
-          label={hasPassForThisJourney ? 'Already purchased for this Journey' : 'Get the Journey Pass'}
-          onPress={handlePurchasePass}
-          disabled={hasPassForThisJourney}
-        />
-      </Card>
+      {billingMode === 'unavailable' ? (
+        <Card>
+          <SectionTitle>Purchases unavailable</SectionTitle>
+          <Muted>In-app purchases aren’t available right now. Please try again later.</Muted>
+        </Card>
+      ) : loadingProducts ? (
+        <ActivityIndicator color={colors.premium} style={{ marginVertical: spacing.lg }} />
+      ) : loadError ? (
+        <Card>
+          <SectionTitle>Couldn’t reach the App Store</SectionTitle>
+          <Muted>{loadError}</Muted>
+          <SecondaryButton label="Try again" onPress={fetchProducts} />
+        </Card>
+      ) : (
+        <>
+          <Card style={{ borderColor: colors.premium, borderWidth: 1.5 }}>
+            <View style={styles.recommended}>
+              <Text style={styles.recommendedText}>RECOMMENDED</Text>
+            </View>
+            <SectionTitle>Journey Pass{passPrice ? ` — ${passPrice}` : ''}</SectionTitle>
+            <Muted>
+              One-time purchase for this Journey, from today through 12 months postpartum. Never renews, never bills
+              again, and stays unlocked for this Journey even after it’s archived.
+            </Muted>
+            <PrimaryButton
+              label={passForThisJourney ? 'Purchased for this Journey' : busy === 'pass' ? 'Purchasing…' : 'Get the Journey Pass'}
+              tone="premium"
+              onPress={() => void buy('pass')}
+              disabled={passForThisJourney || busy !== null || !passPrice}
+            />
+          </Card>
 
-      <Card>
-        <Text style={typography.heading}>Or, monthly subscription — $9.99/mo</Text>
-        <Text style={{ ...typography.body, color: colors.textMuted }}>
-          Auto-renews every month until cancelled. This is a good fit if you’d rather pay as you go, but
-          since Apple doesn’t let apps pause billing automatically, it will keep charging you after your
-          Journey archives unless you cancel it yourself in iOS Settings → [your name] → Subscriptions.
-        </Text>
-        <SecondaryButton
-          label={entitlement.subscriptionActive ? 'Subscription active' : 'Start monthly subscription'}
-          onPress={handleSubscribe}
-          disabled={entitlement.subscriptionActive}
-        />
-        {entitlement.subscriptionActive ? (
-          <SecondaryButton label="(Dev only) Simulate cancel" onPress={deactivateSubscription} />
-        ) : null}
-      </Card>
+          <Card>
+            <SectionTitle>Monthly{monthlyPrice ? ` — ${monthlyPrice}/month` : ''}</SectionTitle>
+            <Muted>
+              Auto-renews monthly until cancelled. Apple doesn’t let apps pause billing, so it keeps renewing after your
+              Journey ends unless you cancel in Settings → your name → Subscriptions.
+            </Muted>
+            <SecondaryButton
+              label={entitlement.subscriptionActive ? 'Subscribed' : busy === 'monthly' ? 'Subscribing…' : 'Subscribe monthly'}
+              tone="premium"
+              onPress={() => void buy('monthly')}
+              disabled={entitlement.subscriptionActive || busy !== null || !monthlyPrice}
+            />
+            {billingMode === 'dev_mock' && entitlement.subscriptionActive ? (
+              <LinkButton label="Dev only: simulate cancellation" onPress={() => mockSetSubscription(false)} />
+            ) : null}
+          </Card>
+        </>
+      )}
 
-      <Card>
-        <Text style={typography.heading}>What’s included</Text>
-        <Text style={{ ...typography.body, color: colors.textMuted }}>
-          Personalized program branching (diastasis severity, delivery type, multiples, high-risk modifications) ·
-          full advanced/progression exercise library · downloadable clearance/progress summary · ad-free ·
-          cross-Journey analytics · one partner viewer seat.
-        </Text>
-      </Card>
+      <LinkButton label={busy === 'restore' ? 'Restoring…' : 'Restore purchases'} onPress={() => void restore()} />
+
+      <Text style={styles.legal}>
+        Payment is charged to your Apple ID at confirmation of purchase. The monthly subscription renews automatically
+        unless cancelled at least 24 hours before the end of the current period; your account is charged for renewal
+        within 24 hours before the period ends. Manage or cancel any time in your App Store account settings. The
+        Journey Pass is a non-renewing purchase and is never charged again.
+      </Text>
+      <View style={styles.legalLinks}>
+        <LinkButton label="Terms of Use" color={colors.textMuted} onPress={() => void Linking.openURL(APP_CONFIG.termsOfUseUrl)} />
+        <LinkButton
+          label="Privacy Policy"
+          color={colors.textMuted}
+          onPress={() =>
+            APP_CONFIG.privacyPolicyUrl ? void Linking.openURL(APP_CONFIG.privacyPolicyUrl) : navigation.navigate('Privacy')
+          }
+        />
+      </View>
     </ScreenContainer>
   );
 }
+
+const styles = StyleSheet.create({
+  center: { textAlign: 'center' },
+  hero: { alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm },
+  title: { ...typography.title, textAlign: 'center', color: colors.text },
+  included: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center' },
+  includedText: { ...typography.body, color: colors.text, flex: 1, lineHeight: 20 },
+  recommended: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.premiumSurface,
+    borderRadius: 6,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+  },
+  recommendedText: { ...typography.caption, fontSize: 11, color: colors.premium, fontWeight: '800', letterSpacing: 0.5 },
+  legal: { ...typography.caption, fontSize: 11, color: colors.textMuted, lineHeight: 16, textAlign: 'center' },
+  legalLinks: { flexDirection: 'row', justifyContent: 'center', gap: spacing.lg },
+});

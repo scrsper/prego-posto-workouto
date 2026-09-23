@@ -117,8 +117,45 @@ export interface Exercise {
   avoidIf: string[];
   modifyIf: string[];
   repTempoSeconds: number;
+  /** Default sets/reps (or timed holds) used by the guided workout player. */
+  prescription: Prescription;
   category: 'core' | 'pelvic-floor' | 'mobility' | 'strength' | 'cardio' | 'relaxation';
   audioCueDescription: string;
+}
+
+/**
+ * How the guided workout player runs an exercise. `reps` sets are paced by
+ * the exercise's `repTempoSeconds`; `timed` sets count down `workSeconds`.
+ * Like everything else in src/data, these defaults need clinical review —
+ * see CONTENT_REVIEW_CHECKLIST.md.
+ */
+export type Prescription =
+  | { kind: 'reps'; sets: number; reps: number; restSeconds: number }
+  | { kind: 'timed'; sets: number; workSeconds: number; restSeconds: number };
+
+/** How the user said a workout felt. `unwell` always routes to the safety checklist. */
+export type WorkoutFeeling = 'easy' | 'just_right' | 'hard' | 'unwell';
+
+export interface WorkoutSession {
+  id: string;
+  journeyId: string;
+  startedAt: string;
+  completedAt: string;
+  exerciseIds: string[];
+  completedExerciseIds: string[];
+  /** Active time, excluding pauses. */
+  durationSeconds: number;
+  feeling: WorkoutFeeling | null;
+  /** True if the user ended the session with the "stop" button rather than finishing. */
+  endedEarly: boolean;
+}
+
+export interface ReminderSettings {
+  enabled: boolean;
+  hour: number;
+  minute: number;
+  /** Identifier of the currently scheduled local notification, if any. */
+  scheduledNotificationId: string | null;
 }
 
 export interface RedFlagSymptom {

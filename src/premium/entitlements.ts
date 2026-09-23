@@ -1,127 +1,172 @@
 /**
- * Entitlement / paywall logic.
+ * Entitlement / paywall rules.
  *
- * Production integration point: replace `mockPurchaseJourneyPass` /
- * `mockActivateSubscription` / `mockDeactivateSubscription` below with
- * RevenueCat (`react-native-purchases`). RevenueCat should own the source of
- * truth for purchase/subscription state; this module only encodes the
- * *rules* of how that state maps to in-app access, so the rules survive the
- * swap from mock to real billing.
+ * The App Store (via RevenueCat, see ./billing.ts) is the source of truth
+ * for *what was bought*. This module only encodes the *rules* for how that
+ * maps onto in-app access, as plain functions so they can be unit tested.
  *
- * IMPORTANT — why this model looks the way it does:
- * StoreKit gives no developer API to programmatically pause and later
- * auto-resume billing on an auto-renewable subscription. Only the
- * subscriber can cancel it (in iOS Settings), and Apple only lets a
- * developer offer discounts/promotional offers on top of an existing
- * subscription — not pause-and-resume the charge itself. An earlier version
- * of this file modeled a "pausable" subscription; that was not
- * implementable against real StoreKit and has been removed.
+ * Why the model looks the way it does:
+ * StoreKit gives no developer API to pause and later auto-resume billing on
+ * an auto-renewable subscription — only the subscriber can cancel it, in
+ * iOS Settings. So instead of a "pausable" subscription there are two
+ * independent entitlement sources:
  *
- * The model here instead has two independent entitlement sources:
+ * 1. Journey Pass (PRIMARY) — a Non-Renewing Subscription product in App
+ *    Store Connect, bought once per Journey. It is scoped locally to the
+ *    Journey that was active when it was bought (`journeyPasses`), never
+ *    renews, and stays valid for that Journey after it archives. Buying
+ *    one for the next Journey is simply another purchase — which is why it
+ *    must be a non-renewing subscription and not a non-consumable (a
+ *    non-consumable can only ever be bought once per Apple ID).
  *
- * 1. `journeyPassIds` — a non-renewing, one-time "Full Journey Pass"
- *    purchase, scoped to one specific Journey by id. This is the PRIMARY,
- *    default offering. It never expires, never renews, and needs no pause
- *    logic: since it's already scoped to a single Journey, there's nothing
- *    to pause — buying a new Journey Pass for the next Journey is simply a
- *    new (non-renewing) purchase, which is what real App Store non-renewing
- *    subscriptions/non-consumables are anyway.
- *
- * 2. `subscriptionActive` — a SECONDARY, opt-in $9.99/mo auto-renewing
- *    subscription for users who prefer that model. It is NOT scoped to a
- *    Journey (Apple has no concept of that), just a boolean mirroring
- *    RevenueCat's "is this entitlement currently active" flag. It unlocks
- *    premium for whichever Journey is currently active, for as long as the
- *    subscriber keeps paying — including across a Journey archive/new
- *    Journey boundary, since we cannot detect or act on that boundary from
- *    the billing side. In-app copy must tell subscribers this plainly and
- *    remind them to cancel it themselves (in iOS Settings) once they no
- *    longer need it — see PaywallScreen.
+ * 2. Monthly subscription (SECONDARY) — an auto-renewable subscription.
+ *    It's not Journey-scoped (Apple has no such concept): it unlocks
+ *    whichever Journey is active for as long as the subscriber pays,
+ *    including across a Journey boundary. The paywall tells subscribers
+ *    plainly that they must cancel it themselves.
  */
 import type { Journey } from '../types/journey';
 
+export interface JourneyPassRecord {
+  journeyId: string;
+  /** App Store transaction id; null for passes granted by the dev-only mock. */
+  transactionId: string | null;
+  purchasedAt: string;
+}
+
 export interface EntitlementState {
-  /** Journey IDs that have a purchased, non-renewing Full Journey Pass. Permanent — never revoked. */
-  journeyPassIds: string[];
-  /** Mirrors RevenueCat's auto-renewing subscription "is active" flag. Not Journey-scoped. */
+  /** Permanent — a pass is never revoked, including after its Journey archives. */
+  journeyPasses: JourneyPassRecord[];
+  /** Mirrors the store's "monthly subscription is currently active" state. Not Journey-scoped. */
   subscriptionActive: boolean;
-  /** Lifetime flag: has this account ever purchased premium via either path. Used for renewal/win-back messaging only. */
+  /** Has this device ever seen a purchase via either path. Used for renewal messaging only. */
   hasEverPurchased: boolean;
 }
 
 export const initialEntitlementState: EntitlementState = {
-  journeyPassIds: [],
+  journeyPasses: [],
   subscriptionActive: false,
   hasEverPurchased: false,
 };
 
-/**
- * Whether premium features should be unlocked *for this specific Journey*.
- * A Journey Pass purchased for this Journey always unlocks it, even after
- * archive. An active subscription unlocks premium for whichever Journey is
- * currently active (it can't distinguish Journeys), so it does not unlock
- * an already-archived Journey once a different one becomes active.
- */
-export function isPremiumActiveForJourney(
-  entitlement: EntitlementState,
-  journey: Journey | null
-): boolean {
-  if (!journey) return false;
-  if (entitlement.journeyPassIds.includes(journey.id)) return true;
-  if (entitlement.subscriptionActive && journey.status === 'active') return true;
-  return false;
+/** What the store reports, reduced to what the rules below need. */
+export interface StoreSnapshot {
+  subscriptionActive: boolean;
+  journeyPassTransactions: { transactionId: string; purchasedAt: string }[];
+}
+
+export function hasJourneyPass(entitlement: EntitlementState, journeyId: string | null | undefined): boolean {
+  if (!journeyId) return false;
+  return entitlement.journeyPasses.some((pass) => pass.journeyId === journeyId);
 }
 
 /**
- * Whether the user should be prompted to renew premium for a Journey they
- * just started — i.e. they've purchased premium before, but neither a pass
- * nor an active subscription covers this new Journey. This is the honest
- * replacement for the "auto-resume a paused subscription" behavior that
- * isn't implementable: instead of resuming automatically, we ask.
+ * Whether premium is unlocked *for this specific Journey*. A Journey Pass
+ * always unlocks its own Journey, even after archive. An active
+ * subscription unlocks only the currently active Journey.
+ */
+export function isPremiumActiveForJourney(entitlement: EntitlementState, journey: Journey | null): boolean {
+  if (!journey) return false;
+  if (hasJourneyPass(entitlement, journey.id)) return true;
+  return entitlement.subscriptionActive && journey.status === 'active';
+}
+
+/**
+ * A returning purchaser just started a Journey that nothing covers. This
+ * replaces the "auto-resume" behavior StoreKit can't support: we ask.
  */
 export function needsRenewalPrompt(entitlement: EntitlementState, newJourney: Journey): boolean {
   return entitlement.hasEverPurchased && !isPremiumActiveForJourney(entitlement, newJourney);
 }
 
-export function mockPurchaseJourneyPass(entitlement: EntitlementState, journeyId: string): EntitlementState {
-  if (entitlement.journeyPassIds.includes(journeyId)) return entitlement;
+function monthsBefore(date: Date, months: number): Date {
+  const result = new Date(date);
+  result.setMonth(result.getMonth() - months);
+  return result;
+}
+
+/**
+ * Folds the store's view of purchases into local entitlement state.
+ *
+ * - Subscription state is mirrored as-is.
+ * - A Journey Pass transaction we haven't seen before (a fresh purchase,
+ *   or a restore on a new install where local Journeys were lost) is
+ *   attached to the active Journey — but only if that Journey doesn't
+ *   already have a pass and the purchase is recent enough to plausibly
+ *   belong to it (`restoreWindowMonths`). Older unknown passes belong to
+ *   Journeys that no longer exist on this device and are ignored.
+ */
+export function reconcileEntitlement(
+  entitlement: EntitlementState,
+  snapshot: StoreSnapshot,
+  activeJourney: Journey | null,
+  now: Date,
+  restoreWindowMonths: number
+): EntitlementState {
+  const known = new Set(entitlement.journeyPasses.map((pass) => pass.transactionId).filter(Boolean));
+  const unknown = snapshot.journeyPassTransactions
+    .filter((tx) => !known.has(tx.transactionId))
+    .sort((a, b) => b.purchasedAt.localeCompare(a.purchasedAt));
+
+  let journeyPasses = entitlement.journeyPasses;
+  const cutoff = monthsBefore(now, restoreWindowMonths).getTime();
+  const newest = unknown[0];
+  if (
+    newest &&
+    activeJourney &&
+    activeJourney.status === 'active' &&
+    !hasJourneyPass(entitlement, activeJourney.id) &&
+    new Date(newest.purchasedAt).getTime() >= cutoff
+  ) {
+    journeyPasses = [
+      ...journeyPasses,
+      { journeyId: activeJourney.id, transactionId: newest.transactionId, purchasedAt: newest.purchasedAt },
+    ];
+  }
+
+  const subscriptionActive = snapshot.subscriptionActive;
+  const hasEverPurchased =
+    entitlement.hasEverPurchased || subscriptionActive || snapshot.journeyPassTransactions.length > 0;
+
+  if (
+    journeyPasses === entitlement.journeyPasses &&
+    subscriptionActive === entitlement.subscriptionActive &&
+    hasEverPurchased === entitlement.hasEverPurchased
+  ) {
+    return entitlement;
+  }
+  return { journeyPasses, subscriptionActive, hasEverPurchased };
+}
+
+/** Dev-only: grant a pass without the App Store (used when no RevenueCat key is configured in __DEV__). */
+export function mockPurchaseJourneyPass(entitlement: EntitlementState, journeyId: string, now: Date): EntitlementState {
+  if (hasJourneyPass(entitlement, journeyId)) return entitlement;
   return {
     ...entitlement,
-    journeyPassIds: [...entitlement.journeyPassIds, journeyId],
+    journeyPasses: [...entitlement.journeyPasses, { journeyId, transactionId: null, purchasedAt: now.toISOString() }],
     hasEverPurchased: true,
   };
 }
 
-export function mockActivateSubscription(entitlement: EntitlementState): EntitlementState {
-  return { ...entitlement, subscriptionActive: true, hasEverPurchased: true };
+/** Dev-only: toggle the mock subscription. A real one can only be cancelled by the subscriber. */
+export function mockSetSubscription(entitlement: EntitlementState, active: boolean): EntitlementState {
+  return { ...entitlement, subscriptionActive: active, hasEverPurchased: entitlement.hasEverPurchased || active };
 }
 
-/**
- * Local-only bookkeeping for the mock. A REAL subscription cannot be
- * cancelled from in-app code — only the subscriber can cancel it, via iOS
- * Settings > [Apple ID] > Subscriptions (or a RevenueCat-hosted manage-
- * subscriptions link). See PaywallScreen's `openManageSubscriptions`.
- */
-export function mockDeactivateSubscription(entitlement: EntitlementState): EntitlementState {
-  return { ...entitlement, subscriptionActive: false };
-}
-
-export interface PremiumFeatureFlags {
-  personalizedProgramBranching: boolean;
-  advancedExerciseLibrary: boolean;
-  downloadableClearanceSummary: boolean;
-  adFree: boolean;
-  crossJourneyAnalytics: boolean;
-  partnerViewerSeat: boolean;
-}
-
-export function premiumFeatureFlags(active: boolean): PremiumFeatureFlags {
+/** Migrates the v1 persisted shape (`journeyPassIds: string[]`). */
+export function migrateEntitlement(raw: unknown): EntitlementState {
+  if (!raw || typeof raw !== 'object') return initialEntitlementState;
+  const value = raw as Partial<EntitlementState> & { journeyPassIds?: string[] };
+  const journeyPasses =
+    value.journeyPasses ??
+    (value.journeyPassIds ?? []).map((journeyId) => ({
+      journeyId,
+      transactionId: null,
+      purchasedAt: new Date(0).toISOString(),
+    }));
   return {
-    personalizedProgramBranching: active,
-    advancedExerciseLibrary: active,
-    downloadableClearanceSummary: active,
-    adFree: active,
-    crossJourneyAnalytics: active,
-    partnerViewerSeat: active,
+    journeyPasses,
+    subscriptionActive: !!value.subscriptionActive,
+    hasEverPurchased: !!value.hasEverPurchased || journeyPasses.length > 0,
   };
 }
