@@ -1,106 +1,144 @@
-import React, { useEffect, useState } from 'react';
-import { Text, View } from 'react-native';
-import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import type { RootStackParamList } from '../navigation/types';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import type { RootStackScreenProps } from '../navigation/types';
 import { useJourneyStore } from '../state/journeyStore';
-import { Card, PrimaryButton, ScreenContainer, SecondaryButton } from '../components/Basics';
+import { useJourneyContext } from '../state/hooks';
+import { Card, LinkButton, Muted, PrimaryButton, RowDivider, ScreenContainer, SecondaryButton, SectionTitle, StatTile } from '../components/Basics';
 import { DisclaimerBanner } from '../components/DisclaimerBanner';
+import { contractionStats } from '../utils/tracking';
+import { formatClock } from '../utils/workout';
+import { haptics } from '../utils/haptics';
 import { colors, spacing, typography } from '../theme/theme';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'ContractionTimer'>;
+/** An unfinished session older than this is treated as abandoned. */
+const STALE_SESSION_MS = 24 * 60 * 60 * 1000;
 
-function formatSeconds(totalSeconds: number): string {
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = Math.floor(totalSeconds % 60);
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-}
+type Props = RootStackScreenProps<'ContractionTimer'>;
 
 export function ContractionTimerScreen({ navigation }: Props) {
-  const activeJourney = useJourneyStore((state) => state.activeJourney());
+  const { journey } = useJourneyContext();
   const startContractionSession = useJourneyStore((state) => state.startContractionSession);
   const startContraction = useJourneyStore((state) => state.startContraction);
   const endContraction = useJourneyStore((state) => state.endContraction);
   const endContractionSession = useJourneyStore((state) => state.endContractionSession);
   const sessions = useJourneyStore((state) => state.contractionSessions);
 
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [, forceTick] = useState(0);
-
-  const session = sessions.find((s) => s.id === sessionId) ?? null;
+  const session = useMemo(
+    () => sessions.find(
+        (s) =>
+          s.journeyId === journey?.id &&
+          !s.endedAt &&
+          Date.now() - new Date(s.startedAt).getTime() < STALE_SESSION_MS
+      ) ?? null,
+    [sessions, journey?.id]
+  );
   const contractions = session?.contractions ?? [];
   const active = contractions[contractions.length - 1] ?? null;
   const isContractingNow = !!active && !active.endedAt;
 
+  const [now, setNow] = useState(Date.now());
   useEffect(() => {
-    if (!isContractingNow) return;
-    const interval = setInterval(() => forceTick((t) => t + 1), 1000);
-    return () => clearInterval(interval);
-  }, [isContractingNow]);
+    if (!session) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [session]);
 
-  function handleStartSession() {
-    if (!activeJourney) return;
-    setSessionId(startContractionSession(activeJourney.id));
-  }
+  const stats = contractionStats(contractions, new Date(now));
+  const lastEnded = [...contractions].reverse().find((c) => c.endedAt);
+  const sinceLast = !isContractingNow && lastEnded ? (now - new Date(lastEnded.startedAt).getTime()) / 1000 : null;
 
-  function handleToggleContraction() {
-    if (!sessionId) return;
+  function handleToggle() {
+    if (!session) return;
     if (isContractingNow) {
-      endContraction(sessionId);
+      endContraction(session.id);
+      haptics.tap();
     } else {
-      startContraction(sessionId);
+      startContraction(session.id);
+      haptics.firm();
     }
-  }
-
-  function handleEndSession() {
-    if (sessionId) endContractionSession(sessionId);
-    setSessionId(null);
   }
 
   return (
     <ScreenContainer>
-      <Text style={typography.title}>Contraction timer</Text>
-      <Text style={{ ...typography.body, color: colors.textMuted }}>
-        Tap "Start contraction" when one begins, and "End contraction" when it stops, so we can time duration
-        and frequency for you.
-      </Text>
+      <Muted>Tap when a contraction starts and again when it ends. We’ll time how long they last and how far apart they are.</Muted>
 
       {!session ? (
-        <PrimaryButton label="Start session" onPress={handleStartSession} disabled={!activeJourney} />
+        <PrimaryButton label="Start timing" icon="stopwatch.fill" onPress={() => journey && startContractionSession(journey.id)} disabled={!journey} />
       ) : (
-        <Card style={{ alignItems: 'center', gap: spacing.md }}>
-          {isContractingNow && active ? (
-            <Text style={{ fontSize: 36, fontWeight: '800', color: colors.danger }}>
-              {formatSeconds((Date.now() - new Date(active.startedAt).getTime()) / 1000)}
+        <Card style={styles.timerCard}>
+          <Pressable
+            onPress={handleToggle}
+            accessibilityRole="button"
+            accessibilityLabel={isContractingNow ? 'Contraction ended' : 'Contraction started'}
+            style={({ pressed }) => [
+              styles.bigButton,
+              { backgroundColor: isContractingNow ? colors.danger : colors.primary },
+              pressed && { transform: [{ scale: 0.96 }] },
+            ]}
+          >
+            <Text style={styles.bigTime}>
+              {isContractingNow && active ? formatClock((now - new Date(active.startedAt).getTime()) / 1000) : sinceLast !== null ? formatClock(sinceLast) : '0:00'}
             </Text>
-          ) : (
-            <Text style={{ ...typography.body, color: colors.textMuted }}>Ready for the next contraction</Text>
-          )}
-          <PrimaryButton
-            label={isContractingNow ? 'End contraction' : 'Start contraction'}
-            onPress={handleToggleContraction}
-          />
-          <SecondaryButton label="End session" onPress={handleEndSession} />
+            <Text style={styles.bigLabel}>
+              {isContractingNow ? 'Tap when it ends' : sinceLast !== null ? 'since last start · tap when one begins' : 'Tap when one begins'}
+            </Text>
+          </Pressable>
+          <View style={styles.stats}>
+            <StatTile value={String(stats.count)} label="last hour" />
+            <StatTile value={stats.averageDurationSeconds ? formatClock(stats.averageDurationSeconds) : '—'} label="avg length" />
+            <StatTile value={stats.averageFrequencySeconds ? formatClock(stats.averageFrequencySeconds) : '—'} label="avg apart" />
+          </View>
+          <SecondaryButton label="End session" onPress={() => endContractionSession(session.id)} style={{ alignSelf: 'stretch' }} />
         </Card>
       )}
 
-      <View style={{ gap: spacing.xs }}>
-        <Text style={typography.heading}>This session</Text>
-        {contractions
-          .slice()
-          .reverse()
-          .map((c, index) => {
-            const duration = c.endedAt
-              ? (new Date(c.endedAt).getTime() - new Date(c.startedAt).getTime()) / 1000
-              : null;
-            return (
-              <Text key={`${c.startedAt}-${index}`} style={{ ...typography.body, color: colors.textMuted }}>
-                {new Date(c.startedAt).toLocaleTimeString()} — {duration !== null ? `${formatSeconds(duration)} long` : 'in progress'}
-              </Text>
-            );
-          })}
-      </View>
+      <Card style={{ borderColor: colors.danger, borderWidth: 1 }}>
+        <Text style={styles.warning}>
+          Follow the plan your provider gave you for when to call or go in. Call right away for contractions before 37
+          weeks, bleeding, fluid leaking, fever, or less movement from your baby.
+        </Text>
+        <LinkButton label="See all warning signs" color={colors.danger} onPress={() => navigation.navigate('SafetyChecklist')} />
+      </Card>
+
+      {contractions.length > 0 ? (
+        <Card>
+          <SectionTitle>This session</SectionTitle>
+          {contractions
+            .slice()
+            .reverse()
+            .map((c, index, list) => {
+              const duration = c.endedAt ? (new Date(c.endedAt).getTime() - new Date(c.startedAt).getTime()) / 1000 : null;
+              const previous = list[index + 1];
+              const apart = previous ? (new Date(c.startedAt).getTime() - new Date(previous.startedAt).getTime()) / 1000 : null;
+              return (
+                <View key={c.startedAt}>
+                  {index > 0 ? <RowDivider /> : null}
+                  <View style={styles.row}>
+                    <Text style={styles.rowTime}>{new Date(c.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</Text>
+                    <Text style={styles.rowValue}>
+                      {duration !== null ? `${formatClock(duration)} long` : 'in progress'}
+                      {apart !== null ? ` · ${formatClock(apart)} apart` : ''}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+        </Card>
+      ) : null}
 
       <DisclaimerBanner />
     </ScreenContainer>
   );
 }
+
+const styles = StyleSheet.create({
+  timerCard: { alignItems: 'center', gap: spacing.md },
+  bigButton: { width: 220, height: 220, borderRadius: 110, alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
+  bigTime: { fontSize: 52, fontWeight: '800', color: '#fff', fontVariant: ['tabular-nums'] },
+  bigLabel: { ...typography.caption, color: '#fff', textAlign: 'center' },
+  stats: { flexDirection: 'row', gap: spacing.sm, alignSelf: 'stretch' },
+  warning: { ...typography.body, color: colors.danger, fontWeight: '600', lineHeight: 21 },
+  row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: spacing.sm },
+  rowTime: { ...typography.body, color: colors.text },
+  rowValue: { ...typography.body, color: colors.textMuted, fontVariant: ['tabular-nums'] },
+});

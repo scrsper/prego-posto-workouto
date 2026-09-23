@@ -1,30 +1,15 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import type { JourneyPhase, SafetyEligibility } from '../types/journey';
 import { colors, radii, spacing, typography } from '../theme/theme';
 
-function eligibilityMatchesPhase(eligibility: SafetyEligibility, phase: JourneyPhase): boolean {
-  if (eligibility.kind === 'trying_to_conceive') return phase.kind === 'trying_to_conceive';
-  if (eligibility.kind === 'trimester') return phase.kind === 'prenatal' && phase.trimester === eligibility.trimester;
-  if (eligibility.kind === 'postpartum_week_range') {
-    if (phase.kind !== 'postpartum') return false;
-    const withinMin = phase.weekPostpartum >= eligibility.minWeek;
-    const withinMax = eligibility.maxWeek === null || phase.weekPostpartum <= eligibility.maxWeek;
-    return withinMin && withinMax;
-  }
-  return false;
-}
-
-export function isExerciseSafeForPhase(eligiblePhases: SafetyEligibility[], phase: JourneyPhase): boolean {
-  return eligiblePhases.some((eligibility) => eligibilityMatchesPhase(eligibility, phase));
-}
+export { isExerciseSafeForPhase } from '../utils/safety';
 
 /** A pill showing whether an exercise is tagged safe for the user's current journey phase. */
 export function SafetyTag({ safe, phaseLabel }: { safe: boolean; phaseLabel: string }) {
   return (
     <View style={[styles.pill, safe ? styles.pillSafe : styles.pillCaution]}>
       <Text style={[styles.pillText, safe ? styles.pillTextSafe : styles.pillTextCaution]}>
-        {safe ? `✓ Safe for ${phaseLabel}` : `Check with your provider for ${phaseLabel}`}
+        {safe ? `✓ Suited to ${phaseLabel}` : `Check with your provider for ${phaseLabel}`}
       </Text>
     </View>
   );

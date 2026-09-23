@@ -57,6 +57,7 @@ important missing from the list entirely?
 - [ ] `incision-signs` (line 76) — C-section/perineal incision infection signs
 - [ ] `mood-safety` (line 82) — perinatal mood/self-harm guidance; confirm the 988 crisis line reference is still the right resource to surface and current
 - [ ] `pelvic-pressure-coning` (line 88) — diastasis/pelvic floor "coning" guidance
+- [ ] `mood-safety` now applies to **both** prenatal and postpartum (was postpartum-only, which hid it from pregnant users' daily check-in). Confirm.
 - [ ] **Completeness check**: is there a clinically significant red-flag symptom missing from this list entirely? (e.g. reduced urination, severe swelling of face/hands, visual disturbances beyond headache, signs of blood clot beyond calf)
 
 ## 2. Exercise library — `src/data/exercises.ts`
@@ -70,26 +71,35 @@ trimester/postpartum-week range it's tagged for), **avoidIf** / **modifyIf**
 Free exercises:
 
 - [ ] `diaphragmatic-breathing` (line 17) — Diaphragmatic (Belly) Breathing
-- [ ] `pelvic-floor-activation` (line 44) — Pelvic Floor Activation (Kegel)
-- [ ] `cat-cow-stretch` (line 70) — Cat-Cow Stretch
-- [ ] `glute-bridge` (line 96) — Supported Glute Bridge — check the "avoid flat supine after first trimester" claim specifically; this is a commonly-cited but debated guideline
-- [ ] `seated-side-bend` (line 123) — Seated Side Bend (Oblique Awareness) — check the diastasis/twisting caution
-- [ ] `wall-squat` (line 148) — Wall Sit / Supported Squat
-- [ ] `prenatal-walking-intervals` (line 174) — Brisk Walking Intervals — check the "talk test" framing
-- [ ] `diastasis-safe-heel-slide` (line 200) — Diastasis-Safe Heel Slide
-- [ ] `postpartum-pelvic-tilts` (line 221) — Postpartum Pelvic Tilts
-- [ ] `csection-scar-mobilization` (line 242) — Gentle C-Section Scar Mobilization — check the "fully healed + provider clearance" gating language and minimum week (6) tag
-- [ ] `standing-marches` (line 263) — Standing Marches
+- [ ] `pelvic-floor-activation` (line 45) — Pelvic Floor Activation (Kegel)
+- [ ] `cat-cow-stretch` (line 72) — Cat-Cow Stretch
+- [ ] `glute-bridge` (line 99) — Supported Glute Bridge — check the "avoid flat supine after first trimester" claim specifically; this is a commonly-cited but debated guideline
+- [ ] `seated-side-bend` (line 127) — Seated Side Bend (Oblique Awareness) — check the diastasis/twisting caution
+- [ ] `wall-squat` (line 153) — Wall Sit / Supported Squat
+- [ ] `prenatal-walking-intervals` (line 180) — Brisk Walking Intervals — check the "talk test" framing
+- [ ] `diastasis-safe-heel-slide` (line 207) — Diastasis-Safe Heel Slide
+- [ ] `postpartum-pelvic-tilts` (line 229) — Postpartum Pelvic Tilts
+- [ ] `csection-scar-mobilization` (line 251) — Gentle C-Section Scar Mobilization — check the "fully healed + provider clearance" gating language and minimum week (6) tag
+- [ ] `standing-marches` (line 273) — Standing Marches
 
 Premium / advanced exercises (also require the in-app clearance
 acknowledgment before unlocking, in addition to clinical review here):
 
-- [ ] `weighted-hip-thrust` (line 286) — Progression: Weighted Hip Thrust — check minimum postpartum week (12) and loading guidance
-- [ ] `loaded-carry-progression` (line 307) — Progression: Loaded Carry — check minimum postpartum week (16)
-- [ ] `diastasis-progression-plank` (line 328) — Progression: Diastasis-Safe Plank Build — check minimum postpartum week (10) and the incline-to-floor progression logic
-- [ ] `twins-modified-carry` (line 349) — Twins/Multiples: Modified Carry & Core — this one in particular should be reviewed by someone with high-risk/multiples pregnancy experience, not just general prenatal fitness
+- [ ] `weighted-hip-thrust` (line 297) — Progression: Weighted Hip Thrust — check minimum postpartum week (12) and loading guidance
+- [ ] `loaded-carry-progression` (line 319) — Progression: Loaded Carry — check minimum postpartum week (16)
+- [ ] `diastasis-progression-plank` (line 341) — Progression: Diastasis-Safe Plank Build — check minimum postpartum week (10) and the incline-to-floor progression logic
+- [ ] `twins-modified-carry` (line 363) — Twins/Multiples: Modified Carry & Core — this one in particular should be reviewed by someone with high-risk/multiples pregnancy experience, not just general prenatal fitness
 
 - [ ] **Completeness check**: are there any exercise categories or trimester/postpartum-week ranges with no appropriate content at all, or content that's tagged safe for a phase it shouldn't be?
+
+- [ ] **Prescriptions** — every exercise now has a `prescription` (sets × reps paced by `repTempoSeconds`, or sets × timed holds, plus rest) that the guided workout player runs. Check each one is appropriate across every phase the exercise is tagged for.
+
+### Daily routine rules — `src/utils/workout.ts` (`buildDailyRoutine`)
+
+- [ ] Breathing + pelvic floor are always the first two exercises when eligible.
+- [ ] Walking intervals (cardio) are excluded from the auto-routine and only offered on their own.
+- [ ] Relevance/safety filters applied to *everyone* (not premium-gated): scar mobilization only after a cesarean; the multiples carry only with the twins/multiples tag; seated side bend excluded for moderate/severe diastasis. Are there other exercise × condition exclusions that should be hard filters?
+- [ ] Premium personalization only **reorders** already-eligible picks (diastasis, cesarean, multiples first); confirm this is appropriate.
 
 ## 3. Educational articles — `src/data/articles.ts`
 
@@ -117,7 +127,13 @@ expectations about what the app can and can't tell them:
 - [ ] `src/components/DisclaimerBanner.tsx` — standing medical disclaimer wording
 - [ ] `src/components/RedFlagChecklist.tsx` — framing text around the red-flag list ("stop and contact your provider if...", footnote about the list not being exhaustive)
 - [ ] `src/screens/ClearanceAcknowledgmentScreen.tsx` — the provider-clearance acknowledgment wording (is this the right bar for "cleared for exercise," and is it legally sufficient as an acknowledgment rather than a waiver?)
-- [ ] `src/screens/SafetyChecklistScreen.tsx` — surrounding copy
+- [ ] `src/screens/SafetyChecklistScreen.tsx` — surrounding copy, plus the emergency block: Call 911, the 988 Suicide & Crisis Lifeline, and the National Maternal Mental Health Hotline (1-833-852-6262). Confirm numbers are current and that US-only framing is acceptable for launch storefronts.
+- [ ] `src/screens/WorkoutPlayerScreen.tsx` — the always-visible "stop right away if…" line, the "I feel unwell" path (routes to the warning signs), and the post-workout "hard" feedback copy
+- [ ] `src/screens/KickCounterScreen.tsx` — the counting guidance ("count at the same time each day… how long it takes to feel 10") and the reduced-movement warning
+- [ ] `src/screens/ContractionTimerScreen.tsx` — the "when to call" warning (contractions before 37 weeks, bleeding, fluid, fever, reduced movement)
+- [ ] `src/screens/DailyCheckInScreen.tsx` — the alert shown after logging a warning sign or "struggling" mood
+- [ ] `src/screens/HomeScreen.tsx` — the early-postpartum (< 6 weeks, no clearance) routine note
+- [ ] `src/screens/DeliveryScreen.tsx` — the C-section scar-work timing note
 
 ---
 

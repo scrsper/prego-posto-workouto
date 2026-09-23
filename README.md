@@ -1,220 +1,222 @@
-# Prego Posto Workouto
+# Prego Posto
 
-A safety-first pregnancy-to-postpartum fitness and recovery app, built around a
-bounded **Journey** — due date (or "trying to conceive") through 12 months
-postpartum — that archives instead of expiring, so a woman can pick it back up
-for a future pregnancy without losing anything.
+A safety-first **iPhone** fitness and recovery app for pregnancy through 12
+months postpartum. It's built around a bounded **Journey** — due date (or
+"trying to conceive") through 12 months after birth — that archives instead
+of expiring, so it can be picked back up for a future pregnancy without
+losing anything.
 
-Built with Expo (React Native), following the AI-coding build path from the
-product spec.
+iOS only (iPhone, portrait). Built with Expo SDK 57 / React Native 0.86.
 
-## Stack
+## What's in the app
 
-- **Expo SDK 57 / React Native 0.86 / React 19**, TypeScript, New Architecture.
-- **`react-native-svg` + `react-native-reanimated` v4** for the animated
-  anatomical exercise system.
-- **Zustand**, persisted to `@react-native-async-storage/async-storage`, for
-  Journey / check-in / entitlement state (swap-in point for Supabase/Firebase
-  if you want sync across devices — see `src/state/journeyStore.ts`).
-- **`@react-navigation`** (native-stack + bottom-tabs) for navigation.
-- Premium entitlement rules are implemented as plain, testable functions in
-  `src/premium/entitlements.ts`, ready to sit behind RevenueCat.
+| Tab | What it does |
+|---|---|
+| **Today** | Journey progress, **today's guided routine** (phase-safe, rotates daily), streak, quick links to check-in / kick counter / contraction timer / "baby's here", warning signs |
+| **Exercises** | Library filtered by category, sorted by what's tagged for your current phase; each exercise can be started on its own |
+| **Track** | Workout, check-in, and weekly stats history |
+| **Learn** | Articles (some premium) |
+| **Settings** | Birth details, provider clearance, provider-visit summary (premium), personalization, daily reminder, plan, data export, delete all data, privacy |
 
-## Getting started
+**Guided workout player** (`WorkoutPlayerScreen`) — full-screen, keeps the
+screen awake, and paces each set: a "get into position" countdown with the
+exercise's steps, rep-by-rep pacing from the exercise's tempo (with a haptic
+tap per rep and the animated muscle figure), timed holds, rest timers,
+spoken cues (`expo-speech`, mutable), and auto-pause if the app goes to the
+background. A stop button is always visible; "I feel unwell" ends the
+session and goes straight to the warning-signs screen. Sessions are saved
+with how they felt.
+
+Other iOS-native touches: SF Symbols throughout (`expo-symbols`), native
+inline date pickers, page-sheet modals with a Close button, haptics on
+every tracker, local daily reminders, the iOS share sheet for exports, and
+`SKStoreReviewController` (only after a few good workouts).
+
+## Running it
+
+You need a Mac with Xcode for a local build, or use EAS Build from anywhere.
+Several native modules (RevenueCat, SF Symbols, date picker, speech) mean
+this runs in a **development build**, not Expo Go.
 
 ```bash
 npm install
-npm run ios      # or: npm run android / npm run web
+npx expo run:ios            # local simulator build (Mac + Xcode)
+# or, from any machine:
+npx eas build --profile development --platform ios   # simulator dev client
+npm start                   # then open the dev client
 ```
 
-### What's been verified, and where
+Checks that run anywhere:
 
-This has been built and iterated in a sandboxed Linux container with **no
-Xcode, no iOS Simulator, no Android SDK/emulator, and no physical device** —
-and no route to `api.expo.dev` / `reactnative.directory` either (outbound
-network policy). That rules out an actual on-device run from this
-environment, full stop. What *was* verified here, using `EXPO_OFFLINE=1` to
-get past the network policy for the checks that support it:
+```bash
+npm run typecheck           # tsc --noEmit
+npm test                    # jest (jest-expo/ios): routine, workout steps, entitlements, tracking, date math
+npx expo export --platform ios   # bundles the full app to Hermes bytecode
+```
 
-- `npx tsc --noEmit` — clean, no type errors.
-- `npx expo export --platform web` — the full app (1,346+ modules, every
-  screen, the SVG rig, reanimated worklets, and navigation) bundles
-  successfully.
-- `npx expo install --check` (offline mode) — flagged six dependencies
-  (`@react-native-async-storage/async-storage`, `react-native-gesture-handler`,
-  `react-native-reanimated`, `react-native-safe-area-context`,
-  `react-native-screens`, `react-native-svg`) that had drifted ahead of the
-  versions this Expo SDK actually bundles/tests against, because they were
-  originally installed with plain `npm install` rather than `expo install`.
-  Pinned all six back to the expected versions.
-- `npx expo-doctor` — found and fixed one real issue: `react-native-worklets`
-  (a required peer of `react-native-reanimated` v4, and a native module that
-  needs direct-dependency autolinking) was only present transitively, not as
-  a direct `package.json` dependency. Added it explicitly. The only two
-  remaining `expo-doctor` failures are its config-schema and
-  React-Native-Directory checks, both of which call out to the same blocked
-  hosts above — not project issues, just unreachable from here.
-- Reviewed `AnatomicalFigure.tsx` specifically for New Architecture/
-  Reanimated v4 correctness (this was the one component called out for
-  extra scrutiny). Found and fixed one real bug this way: the infinite
-  `withRepeat(..., -1, ...)` pulse animation had no cleanup, so navigating
-  away from an exercise screen (unmounting the component) would leave it
-  running on the UI thread indefinitely — added `cancelAnimation()` in the
-  effect's cleanup. Everything else (worklet auto-detection via the babel
-  plugin, `useAnimatedProps` on `Animated.createAnimatedComponent(Ellipse/Rect)`,
-  shared-value typing) checked out against current Reanimated docs, but this
-  is a static read, not a runtime one.
+### Configuration
 
-**What's still unverified, because it genuinely requires hardware/tooling
-this sandbox doesn't have**: actually launching the app on an iOS
-simulator or device, confirming the muscle-pulse animation renders and
-performs correctly on Fabric (native `react-native-svg` + Reanimated
-rendering can differ meaningfully from the web bundle's DOM-based SVG
-shim, which is a real gap the web-bundle check above cannot close),
-navigation gesture behavior, and general on-device feel. If you're picking
-this up on a Mac: `npm install && npx expo run:ios` (or open in Expo Go /
-a dev client) is the next step, and the exercise detail screens
-(`ExerciseDetailScreen`) are the highest-value place to look first.
+Copy `.env.example` → `.env.local` (git-ignored), or set these on the EAS
+build profile:
+
+| Variable | Purpose |
+|---|---|
+| `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY` | RevenueCat public iOS key. **Empty in a dev build → purchases are simulated locally**; empty in a release build → the paywall says purchases are unavailable. |
+| `EXPO_PUBLIC_PRIVACY_POLICY_URL` | Hosted privacy policy, linked from the paywall and Privacy screen. |
+| `EXPO_PUBLIC_SUPPORT_EMAIL` | Optional "Contact support" row. |
+| `EXPO_PUBLIC_TERMS_URL` | Optional; defaults to Apple's standard EULA. |
+
+Product IDs and other constants live in `src/config.ts`. The bundle
+identifier is `com.scrsper.pregoposto` in `app.json` — change it to one you
+own before your first build.
+
+## Shipping to the App Store
+
+1. **App Store Connect → In-App Purchases**, create two products (IDs must
+   match `src/config.ts`):
+   - `journey_pass` — **Non-Renewing Subscription**. Not a non-consumable:
+     a non-consumable can only be bought once per Apple ID, and a returning
+     user needs a new pass for each Journey.
+   - `premium_monthly` — **Auto-Renewable Subscription**, 1 month.
+2. **RevenueCat**: add the iOS app, import both products, and put them in an
+   offering with identifier `default` (or make it the current offering).
+   Entitlement setup is optional — the app reads product IDs directly.
+   Copy the public iOS key into `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY`.
+3. **Build & submit**: `npm run build:ios`, then `npm run submit:ios`
+   (`eas.json` has `development`, `development-device`, `preview`, and
+   `production` profiles; build numbers auto-increment remotely).
+4. **App Privacy** questionnaire: no tracking; data collected is limited to
+   **Purchases** (via RevenueCat), not linked to identity, for app
+   functionality. Health data never leaves the device. This matches the
+   privacy manifest in `app.json` (`ios.privacyManifests`) — double-check
+   against RevenueCat's current guidance when you fill it in.
+5. **Export compliance** is pre-answered (`ITSAppUsesNonExemptEncryption = false`).
+6. **Before submitting**, work through `CONTENT_REVIEW_CHECKLIST.md` — see
+   *Safety framework*.
+
+Paywall compliance already in place: live App Store prices (never
+hard-coded in release), **Restore purchases**, auto-renewal disclosure,
+Terms of Use + Privacy Policy links, and a Manage Subscription link (there
+is no in-app cancel API). Apple also requires the app to be usable without
+buying anything: all safety content, tracking, and the core routines are
+free.
 
 ## Where things live
 
 ```
+App.tsx                       Splash gating, billing listener, reminder deep link, error boundary
+app.json / eas.json           iOS config (bundle id, privacy manifest, plugins) and build profiles
+plugins/                      Config plugin that strips the unused push entitlement
 src/
-  types/journey.ts          Core domain types (Journey, phases, exercises, ...)
-  utils/pregnancyDates.ts   Due-date/trimester/postpartum-week math, Journey end date
-  state/journeyStore.ts     Zustand store: journeys, check-ins, kick/contraction
-                            sessions, entitlement — persisted to AsyncStorage
-  premium/entitlements.ts   Paywall rules (pause-on-archive, resume-on-new-journey)
-  data/                     Exercise, red-flag, and article content
-  components/
-    AnatomicalFigure.tsx    The animated SVG rig (see below)
-    anatomy/muscleGeometry.ts  Placeholder muscle-group geometry, keyed by name
-    SafetyTag.tsx, RedFlagChecklist.tsx, DisclaimerBanner.tsx, PremiumGate.tsx
-  screens/                  One file per screen
-  navigation/               RootNavigator (stack) + MainTabs (bottom tabs)
+  config.ts                   Product IDs, URLs, env-driven settings
+  types/journey.ts            Domain types (Journey, phases, exercises, prescriptions, workouts)
+  data/                       Exercises (with prescriptions), red flags, articles — all UNREVIEWED
+  utils/
+    pregnancyDates.ts         Due-date / trimester / postpartum-week math
+    safety.ts                 Phase eligibility check
+    workout.ts                Daily routine builder, workout step engine, streak stats
+    tracking.ts               Contraction stats, kick timing, provider-visit summary
+  state/journeyStore.ts       Zustand store persisted to AsyncStorage (v2 schema + migration)
+  state/hooks.ts              Journey context + stable selectors
+  premium/entitlements.ts     Pure entitlement rules (pass scoping, restore, renewal)
+  premium/billing.ts          RevenueCat wrapper (store / dev_mock / unavailable)
+  notifications/reminders.ts  Local daily reminder
+  components/                 Shared UI, animated anatomical SVG rig, safety components
+  screens/                    One file per screen
+  navigation/                 Root stack (modals, full-screen player) + SF Symbol tabs
 ```
 
 ## The Journey / reset mechanic
 
-`src/state/journeyStore.ts` holds an array of `Journey` records, each with a
-`status` of `active` or `archived`. Only one Journey is active at a time.
-`runAutoArchiveSweep()` (called on app start) archives any active Journey
-whose `journeyEndDate` — 12 months after actual/estimated delivery — has
-passed. Archived Journeys, their check-ins, kick/contraction sessions, and
-personalization data are never deleted, on any tier, and remain browsable
-from **Journey history**. Starting a new Journey (`startNewJourney`) also
-calls `resumeEntitlementForNewJourney`, so a previously-paused premium plan
-reactivates for the new Journey with one tap instead of a fresh purchase.
-
-## The animated anatomical SVG system
-
-`AnatomicalFigure` renders one shared rig per `BodyVariant`
-(`neutral` / `pregnant` / `postpartum`) from `anatomy/muscleGeometry.ts`, and
-animates an opacity pulse (via `react-native-reanimated`) over whichever
-named muscle groups an exercise calls out, synced to that exercise's rep
-tempo. Every exercise reuses the same rig — nothing is drawn per-exercise.
-
-**This rig is a geometric placeholder** (ellipses/rects standing in for real
-illustration), built to prove out the architecture described in the spec:
-one base illustration, named muscle-group layers, reused and re-highlighted
-per exercise. Swapping in real commissioned artwork means replacing the
-shapes in `muscleGeometry.ts` with `<Path>` data under the same
-`MuscleGroupId` keys — no changes needed anywhere else, including the
-exercise screens. See the comments at the top of that file for specifics,
-including the current front-view-only limitation for glutes/hamstrings/
-erector spinae.
-
-## Safety framework
-
-- The red-flag symptom checklist (`src/data/redFlagSymptoms.ts`,
-  rendered by `RedFlagChecklist`) and the standing medical disclaimer
-  (`DisclaimerBanner`) are never gated by `isPremium` anywhere in the app —
-  by design, not by convention. Grep for `PremiumLockedNotice` /
-  `PremiumBadge` usage to confirm neither wraps that content.
-- Every exercise carries `eligiblePhases` (trimester / postpartum-week-range
-  tags), `avoidIf`, and `modifyIf`, checked against the user's live journey
-  phase by `isExerciseSafeForPhase` in `SafetyTag.tsx`.
-- **All exercise/article/red-flag content in `src/data/` is placeholder
-  copy** loosely based on public guidance (CDC "Urgent Maternal Warning
-  Signs", general ACOG-aligned conventions), written to exercise the data
-  model — not clinically reviewed. Each data file has a notice comment
-  at the top. Per the spec, get this content signed off by a certified
-  pre/postnatal fitness specialist or pelvic floor physical therapist
-  before real users see it — this is the single highest-leverage trust and
-  liability investment described in the product spec, and Apple's review
-  process scrutinizes health/safety claims like these.
-- Advanced/progression (premium) exercises are additionally gated behind a
-  `clearanceAcknowledgment` on the active Journey (see
-  `ClearanceAcknowledgmentScreen`), matching the "cleared for exercise by my
-  provider" requirement.
+Only one Journey is active at a time; starting a new one archives the
+current one. `runAutoArchiveSweep()` archives a Journey 12 months after
+actual (or estimated) delivery. Archived Journeys and all their data are
+kept forever on every tier and browsable from Journey History (premium adds
+a side-by-side comparison). Postpartum weeks count from the **birth date**
+entered on the Birth Details screen, falling back to the due date.
 
 ## Monetization
 
-**This was reworked from an earlier "pausable subscription" design that
-turned out not to be implementable.** StoreKit gives no developer API to
-pause and later auto-resume billing on an auto-renewable subscription —
-only the subscriber can cancel it, and Apple only supports discounts/
-promotional offers on top of an existing subscription, not a true pause.
-See the long comment at the top of `src/premium/entitlements.ts` for the
-full reasoning.
+StoreKit has no API to pause and auto-resume an auto-renewable
+subscription, so there are two honest entitlement sources
+(`src/premium/entitlements.ts`):
 
-The model now has two independent, honestly-modeled entitlement sources:
+- **Journey Pass** (primary) — non-renewing, attached to the Journey that was
+  active when bought, valid for it forever. On a fresh install, *Restore
+  purchases* re-attaches a pass bought within the last 22 months (the
+  longest possible Journey) to the current Journey; older passes belong to
+  Journeys that no longer exist on the device.
+- **Monthly subscription** (secondary) — unlocks whichever Journey is active
+  while it's paid; the paywall says plainly that it keeps renewing after a
+  Journey ends until cancelled in Settings.
 
-- **Full Journey Pass — $59.99, one-time, non-renewing (primary/default).**
-  Scoped to a specific Journey id (`entitlement.journeyPassIds`). Never
-  expires, never bills again, needs no pause logic because it's already
-  scoped to one Journey — buying it again for the next Journey is just
-  another (separate) purchase.
-- **Monthly subscription — $9.99/mo, auto-renewing (secondary/opt-in).**
-  A plain `subscriptionActive` boolean mirroring RevenueCat's entitlement
-  state, not Journey-scoped (Apple has no concept of that). It unlocks
-  premium for whichever Journey is currently active, keeps billing after a
-  Journey archives unless the subscriber cancels it themselves, and
-  `PaywallScreen` says so explicitly and links out to iOS's subscription
-  management screen (`itms-apps://apps.apple.com/account/subscriptions`) —
-  there is no in-app "cancel" button because there is no API for one.
-- **Renewal, not auto-resume.** `needsRenewalPrompt()` detects when a
-  returning purchaser's new Journey isn't covered by either a pass or an
-  active subscription, and `NewJourneyScreen` routes straight to the
-  Paywall in that case (`isRenewal` framing) instead of silently trying to
-  resume something that can't be resumed. For an active subscriber, this is
-  where you'd offer a RevenueCat promotional offer instead of a fresh
-  purchase flow.
+`needsRenewalPrompt()` routes a returning purchaser to the paywall after
+starting a new Journey instead of pretending to "resume" anything.
 
-`mockPurchaseJourneyPass` / `mockActivateSubscription` /
-`mockDeactivateSubscription` in `entitlements.ts` are the integration seam
-for RevenueCat (`react-native-purchases`): replace them with real purchase
-calls, and drive `EntitlementState` from RevenueCat's `CustomerInfo`
-listener instead of local mutation. The ~85/15 free/premium split from the
-spec is reflected in `isPremium` flags across `src/data/exercises.ts` and
-`src/data/articles.ts`.
+Premium includes: personalized routine ordering (diastasis recti, C-section,
+multiples), advanced progression exercises (also requires the provider
+clearance acknowledgment), premium articles, the shareable provider-visit
+summary, and cross-Journey comparison.
 
-**App Store Connect setup**: this needs **two separate IAP products** —
-a non-renewing subscription (or non-consumable, if you'd rather it be a
-literal one-time unlock with no product-level "duration") for the Journey
-Pass, and the existing auto-renewable subscription product for the monthly
-plan. They are different product types in App Store Connect and are not
-interchangeable — don't try to model the Journey Pass as an auto-renewable
-product with quantity 1, since that still auto-renews unless cancelled.
+## Safety framework
+
+- The warning-signs screen (with Call 911 / 988 / Maternal Mental Health
+  Hotline), the standing disclaimer, check-ins, and all trackers are never
+  premium-gated.
+- Every exercise carries `eligiblePhases`, `avoidIf`, and `modifyIf`. The
+  daily routine only ever contains exercises tagged for the current phase,
+  and hard relevance filters (e.g. no scar work without a cesarean, no side
+  bends with moderate/severe diastasis) apply to everyone.
+- Disclaimers users actually see: a required "educational, not medical
+  advice — I'll check with my provider, take it easy, and stop if anything
+  feels wrong" acknowledgment before the first Journey; a "Take it easy
+  today" screen before every workout (the timer starts only after "I'm
+  ready"); the standing disclaimer banner; and "suited to your phase"
+  wording rather than claiming exercises are "safe".
+- **All exercise, prescription, article, and red-flag content is AI-drafted
+  and has not been clinically reviewed.** A clinician review isn't a legal
+  or App Store requirement for a general-wellness fitness app, and the
+  disclaimers above lower the risk, but they don't replace accurate content:
+  a disclaimer won't help if a warning sign is missing or an exercise is
+  tagged for the wrong week. At minimum, check every item against published
+  guidance (ACOG, CDC "Hear Her" warning signs, NHS) using
+  `CONTENT_REVIEW_CHECKLIST.md`. A one-off paid review by a pre/postnatal
+  specialist or pelvic floor PT is strongly recommended, especially for
+  the red-flag list. Dev builds show a red banner as a reminder. App Review
+  looks more closely at health claims (guideline 1.4.1).
+
+## What's been verified, and where
+
+Built in a Linux container with no Xcode, simulator, or device, and with
+`docs.expo.dev` / `api.expo.dev` blocked by network policy (so Expo APIs
+were checked against the installed SDK 57 packages' type definitions and
+config-plugin source rather than the web docs). Verified here:
+
+- `tsc --noEmit` — clean.
+- `jest` — 29 tests over the routine builder, workout step engine, streaks,
+  entitlement reconciliation/restore/migration, contraction stats, provider
+  summary, and phase math. These caught and fixed an existing off-by-one in
+  the week math (calendar-week boundaries instead of completed 7-day weeks),
+  which affects which exercises unlock at which postpartum week.
+- `expo export --platform ios` — the whole app bundles to Hermes bytecode.
+- `expo prebuild --platform ios` — generates the native project; confirmed
+  bundle id, iPhone-only device family, iOS 16.4 target, light mode,
+  `ITSAppUsesNonExemptEncryption = false`, the privacy manifest, and an
+  empty entitlements file (no unused push capability).
+- `expo-doctor` / `expo install --check` — all checks pass except the two
+  that need the blocked network (config schema, React Native Directory).
+
+**Not yet verified — do this on a Mac before submitting:** running on a
+simulator and a real iPhone (especially the workout player's timing,
+haptics and speech, the SVG pulse animation on Fabric, and the date
+pickers), and a sandbox purchase + restore of both products through
+RevenueCat in a TestFlight build.
 
 ## Known gaps / next steps
 
-- **An actual on-device/simulator run.** See "What's been verified, and
-  where" above — this has never been launched on a real iOS device,
-  simulator, or Android emulator. Do this before shipping, with particular
-  attention to `AnatomicalFigure.tsx`'s pulse animation.
-- Real commissioned anatomical illustrations (see above).
-- Clinical review of all safety/exercise/article content (see above, and
-  work through `CONTENT_REVIEW_CHECKLIST.md` at the project root). Every
-  entry in `exercises.ts`/`articles.ts` carries a `contentReviewStatus:
-  'needs_clinical_review'` field until a named reviewer has actually
-  checked it off. Running the app in dev mode (`__DEV__`) shows a red
-  banner and logs a console warning as a standing reminder of this.
-- RevenueCat integration (currently mocked locally).
-- Cloud sync (Supabase/Firebase) for cross-device Journey history — the
-  Zustand store's `partialize`d shape is already the natural sync payload.
-- Cross-Journey analytics charts (`JourneyArchiveScreen` has a labeled slot
-  for this).
-- Downloadable clearance/progress PDF summary for OB/PT visits.
-- Partner/family viewer seat (auth + a read-only view are not built).
-- Push notifications (daily check-in reminders, red-flag follow-ups).
+- Content check against published guidance, ideally a clinician review (see *Safety framework*).
+- Real commissioned anatomical illustrations (the SVG rig is a geometric
+  placeholder; swap shapes in `anatomy/muscleGeometry.ts`, keyed by muscle).
+- Dark mode (the app is currently locked to light appearance).
+- iPad layouts (disabled: `supportsTablet: false`).
+- Apple Health (HealthKit) workout export, iCloud sync, a partner view.

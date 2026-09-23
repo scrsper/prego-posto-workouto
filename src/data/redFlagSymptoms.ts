@@ -82,7 +82,7 @@ export const RED_FLAG_SYMPTOMS: RedFlagSymptom[] = [
     id: 'mood-safety',
     label: 'Thoughts of harming yourself or your baby, or feeling unable to cope',
     guidance: 'This is urgent. Contact your provider now, or call/text 988 (Suicide & Crisis Lifeline) for immediate support.',
-    appliesTo: 'postpartum',
+    appliesTo: 'both',
   },
   {
     id: 'pelvic-pressure-coning',

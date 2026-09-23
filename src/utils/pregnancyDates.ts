@@ -1,5 +1,5 @@
-import { addDays, addMonths, differenceInCalendarDays, differenceInCalendarWeeks } from 'date-fns';
-import type { Journey, JourneyPhase } from '../types/journey';
+import { addDays, addMonths, differenceInCalendarDays } from 'date-fns';
+import type { BodyVariant, Journey, JourneyPhase } from '../types/journey';
 
 /** Standard full-term pregnancy length used for due-date math. */
 export const PREGNANCY_LENGTH_DAYS = 280;
@@ -41,9 +41,11 @@ export function resolveJourneyPhase(journey: Journey, asOf: Date = new Date()): 
 
   if (!hasDelivered && dueDate) {
     const conceptionDate = estimatedConceptionDate(dueDate);
+    // Completed 7-day weeks since the dating anchor, not calendar-week
+    // boundaries (which would tick over early depending on the weekday).
     const weekOfPregnancy = Math.min(
       42,
-      Math.max(1, differenceInCalendarWeeks(asOf, conceptionDate) + 1)
+      Math.max(1, Math.floor(differenceInCalendarDays(asOf, conceptionDate) / 7) + 1)
     );
     const trimester = weekOfPregnancy <= 13 ? 1 : weekOfPregnancy <= 27 ? 2 : 3;
     return { kind: 'prenatal', trimester, weekOfPregnancy };
@@ -52,7 +54,7 @@ export function resolveJourneyPhase(journey: Journey, asOf: Date = new Date()): 
   const anchor = deliveryDate ?? dueDate;
   if (!anchor) return { kind: 'trying_to_conceive' };
 
-  const weekPostpartum = Math.max(0, differenceInCalendarWeeks(asOf, anchor));
+  const weekPostpartum = Math.max(0, Math.floor(differenceInCalendarDays(asOf, anchor) / 7));
   const monthPostpartum = Math.max(0, Math.floor(differenceInCalendarDays(asOf, anchor) / 30));
 
   if (monthPostpartum >= JOURNEY_POSTPARTUM_LENGTH_MONTHS) {
@@ -73,4 +75,12 @@ export function phaseLabel(phase: JourneyPhase): string {
     case 'journey_complete':
       return 'Journey complete';
   }
+}
+
+/** Which body silhouette to draw for the user's current phase. */
+export function bodyVariantForPhase(phase: JourneyPhase | null, fallback: BodyVariant): BodyVariant {
+  if (!phase) return fallback;
+  if (phase.kind === 'prenatal') return phase.trimester === 1 ? 'neutral' : 'pregnant';
+  if (phase.kind === 'postpartum') return 'postpartum';
+  return 'neutral';
 }

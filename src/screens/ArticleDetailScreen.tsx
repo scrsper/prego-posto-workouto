@@ -3,19 +3,17 @@ import { Text } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/types';
 import { ARTICLES } from '../data/articles';
-import { useJourneyStore } from '../state/journeyStore';
-import { isPremiumActiveForJourney } from '../premium/entitlements';
+import { useJourneyContext } from '../state/hooks';
 import { PremiumLockedNotice } from '../components/PremiumGate';
 import { Card, ScreenContainer } from '../components/Basics';
+import { DisclaimerBanner } from '../components/DisclaimerBanner';
 import { colors, typography } from '../theme/theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ArticleDetail'>;
 
 export function ArticleDetailScreen({ route, navigation }: Props) {
   const article = ARTICLES.find((item) => item.id === route.params.articleId);
-  const activeJourney = useJourneyStore((state) => state.activeJourney());
-  const entitlement = useJourneyStore((state) => state.entitlement);
-  const isPremium = isPremiumActiveForJourney(entitlement, activeJourney);
+  const { isPremium } = useJourneyContext();
 
   if (!article) {
     return (
@@ -36,10 +34,14 @@ export function ArticleDetailScreen({ route, navigation }: Props) {
 
   return (
     <ScreenContainer>
-      <Text style={typography.title}>{article.title}</Text>
+      <Text style={typography.title} accessibilityRole="header">
+        {article.title}
+      </Text>
+      <Text style={{ ...typography.body, color: colors.textMuted, fontStyle: 'italic' }}>{article.summary}</Text>
       <Card>
-        <Text style={{ ...typography.body, color: colors.text, lineHeight: 22 }}>{article.body}</Text>
+        <Text style={{ ...typography.body, fontSize: 17, color: colors.text, lineHeight: 26 }}>{article.body}</Text>
       </Card>
+      <DisclaimerBanner compact />
     </ScreenContainer>
   );
 }

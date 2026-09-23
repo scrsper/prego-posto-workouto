@@ -9,29 +9,61 @@ import type {
   DeliveryType,
   Journey,
   KickCountSession,
+  ReminderSettings,
+  WorkoutSession,
 } from '../types/journey';
 import { isJourneyPastEnd } from '../utils/pregnancyDates';
+import { APP_CONFIG } from '../config';
 import {
   type EntitlementState,
+  type StoreSnapshot,
   initialEntitlementState,
-  mockActivateSubscription,
-  mockDeactivateSubscription,
+  migrateEntitlement,
   mockPurchaseJourneyPass,
+  mockSetSubscription,
+  reconcileEntitlement,
 } from '../premium/entitlements';
 
 function generateId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-interface JourneyStoreState {
-  hasHydrated: boolean;
+export const initialReminderSettings: ReminderSettings = {
+  enabled: false,
+  hour: 19,
+  minute: 0,
+  scheduledNotificationId: null,
+};
+
+interface PersistedState {
   journeys: Journey[];
   activeJourneyId: string | null;
   dailyCheckIns: DailyCheckIn[];
   kickCountSessions: KickCountSession[];
   contractionSessions: ContractionSession[];
+  workoutSessions: WorkoutSession[];
   entitlement: EntitlementState;
+  reminders: ReminderSettings;
+  hasRequestedReview: boolean;
+  /** When the user accepted the "educational, not medical advice" acknowledgment. */
+  safetyAcknowledgedAt: string | null;
+}
 
+const initialPersistedState: PersistedState = {
+  journeys: [],
+  activeJourneyId: null,
+  dailyCheckIns: [],
+  kickCountSessions: [],
+  contractionSessions: [],
+  workoutSessions: [],
+  entitlement: initialEntitlementState,
+  reminders: initialReminderSettings,
+  hasRequestedReview: false,
+  safetyAcknowledgedAt: null,
+};
+
+interface JourneyStoreState extends PersistedState {
+  hasHydrated: boolean;
   setHasHydrated: (value: boolean) => void;
 
   startNewJourney: (input: {
@@ -40,11 +72,8 @@ interface JourneyStoreState {
     displayName?: string;
   }) => string;
   archiveJourney: (journeyId: string) => void;
-  updateJourneyDelivery: (
-    journeyId: string,
-    actualDeliveryDate: string,
-    deliveryType: DeliveryType
-  ) => void;
+  setEstimatedDueDate: (journeyId: string, estimatedDueDate: string) => void;
+  recordDelivery: (journeyId: string, actualDeliveryDate: string | null, deliveryType: DeliveryType) => void;
   setPersonalizationTags: (journeyId: string, tags: string[]) => void;
   recordClearanceAcknowledgment: (journeyId: string, ack: ClearanceAcknowledgment) => void;
   runAutoArchiveSweep: () => void;
@@ -53,6 +82,7 @@ interface JourneyStoreState {
 
   startKickCountSession: (journeyId: string, targetKickCount: number) => string;
   recordKick: (sessionId: string) => void;
+  undoKick: (sessionId: string) => void;
   endKickCountSession: (sessionId: string) => void;
 
   startContractionSession: (journeyId: string) => string;
@@ -60,29 +90,34 @@ interface JourneyStoreState {
   endContraction: (sessionId: string) => void;
   endContractionSession: (sessionId: string) => void;
 
-  purchaseJourneyPass: (journeyId: string) => void;
-  activateSubscription: () => void;
-  deactivateSubscription: () => void;
+  addWorkoutSession: (session: Omit<WorkoutSession, 'id'>) => void;
 
-  activeJourney: () => Journey | null;
-  archivedJourneys: () => Journey[];
+  setReminders: (reminders: ReminderSettings) => void;
+  markReviewRequested: () => void;
+  acknowledgeSafety: () => void;
+
+  applyStoreSnapshot: (snapshot: StoreSnapshot) => void;
+  mockPurchaseJourneyPass: (journeyId: string) => void;
+  mockSetSubscription: (active: boolean) => void;
+
+  resetAllData: () => void;
+}
+
+function mapJourney(journeys: Journey[], journeyId: string, update: (journey: Journey) => Journey): Journey[] {
+  return journeys.map((journey) => (journey.id === journeyId ? update(journey) : journey));
 }
 
 export const useJourneyStore = create<JourneyStoreState>()(
   persist(
     (set, get) => ({
+      ...initialPersistedState,
       hasHydrated: false,
-      journeys: [],
-      activeJourneyId: null,
-      dailyCheckIns: [],
-      kickCountSessions: [],
-      contractionSessions: [],
-      entitlement: initialEntitlementState,
 
       setHasHydrated: (value) => set({ hasHydrated: value }),
 
       startNewJourney: ({ conceptionMode, estimatedDueDate, displayName }) => {
         const id = generateId();
+        const now = new Date();
         const journey: Journey = {
           id,
           status: 'active',
@@ -92,67 +127,67 @@ export const useJourneyStore = create<JourneyStoreState>()(
           deliveryType: 'unknown',
           personalizationTags: [],
           clearanceAcknowledgment: null,
-          createdAt: new Date().toISOString(),
+          createdAt: now.toISOString(),
           archivedAt: null,
-          displayName: displayName ?? `Journey started ${new Date().toLocaleDateString()}`,
+          displayName: displayName ?? `Journey started ${now.toLocaleDateString()}`,
         };
-        // Note: no entitlement mutation here. A Journey Pass is scoped to
-        // the Journey it was bought for and never carries over; an active
-        // subscription (not Journey-scoped) simply keeps covering whatever
-        // Journey is active, with no action needed. See
-        // src/premium/entitlements.ts for the full explanation and
-        // `needsRenewalPrompt` for detecting when to offer renewal.
+        // Only one Journey may be active: archive (never delete) any other.
+        // No entitlement mutation — a Journey Pass never carries over, and
+        // a subscription simply covers whichever Journey is active.
         set((state) => ({
-          journeys: [...state.journeys, journey],
+          journeys: [
+            ...state.journeys.map((j) =>
+              j.status === 'active' ? { ...j, status: 'archived' as const, archivedAt: now.toISOString() } : j
+            ),
+            journey,
+          ],
           activeJourneyId: id,
         }));
         return id;
       },
 
       archiveJourney: (journeyId) => {
-        // Note: no entitlement mutation here — a subscription cannot be
-        // paused programmatically (see entitlements.ts). If the user has
-        // an active subscription, the UI is responsible for reminding them
-        // to cancel it themselves; a Journey Pass simply stops mattering
-        // once its Journey is archived (still valid if they look back).
         set((state) => ({
-          journeys: state.journeys.map((j) =>
-            j.id === journeyId
-              ? { ...j, status: 'archived', archivedAt: new Date().toISOString() }
-              : j
-          ),
+          journeys: mapJourney(state.journeys, journeyId, (j) => ({
+            ...j,
+            status: 'archived',
+            archivedAt: new Date().toISOString(),
+          })),
           activeJourneyId: state.activeJourneyId === journeyId ? null : state.activeJourneyId,
         }));
       },
 
-      updateJourneyDelivery: (journeyId, actualDeliveryDate, deliveryType) => {
+      setEstimatedDueDate: (journeyId, estimatedDueDate) => {
         set((state) => ({
-          journeys: state.journeys.map((j) =>
-            j.id === journeyId ? { ...j, actualDeliveryDate, deliveryType } : j
-          ),
+          journeys: mapJourney(state.journeys, journeyId, (j) => ({
+            ...j,
+            estimatedDueDate,
+            conceptionMode: 'due_date',
+          })),
+        }));
+      },
+
+      recordDelivery: (journeyId, actualDeliveryDate, deliveryType) => {
+        set((state) => ({
+          journeys: mapJourney(state.journeys, journeyId, (j) => ({ ...j, actualDeliveryDate, deliveryType })),
         }));
       },
 
       setPersonalizationTags: (journeyId, tags) => {
         set((state) => ({
-          journeys: state.journeys.map((j) =>
-            j.id === journeyId ? { ...j, personalizationTags: tags } : j
-          ),
+          journeys: mapJourney(state.journeys, journeyId, (j) => ({ ...j, personalizationTags: tags })),
         }));
       },
 
       recordClearanceAcknowledgment: (journeyId, ack) => {
         set((state) => ({
-          journeys: state.journeys.map((j) =>
-            j.id === journeyId ? { ...j, clearanceAcknowledgment: ack } : j
-          ),
+          journeys: mapJourney(state.journeys, journeyId, (j) => ({ ...j, clearanceAcknowledgment: ack })),
         }));
       },
 
       runAutoArchiveSweep: () => {
-        const state = get();
         const now = new Date();
-        state.journeys.forEach((journey) => {
+        get().journeys.forEach((journey) => {
           if (journey.status === 'active' && isJourneyPastEnd(journey, now)) {
             get().archiveJourney(journey.id);
           }
@@ -185,9 +220,15 @@ export const useJourneyStore = create<JourneyStoreState>()(
       recordKick: (sessionId) => {
         set((state) => ({
           kickCountSessions: state.kickCountSessions.map((s) =>
-            s.id === sessionId
-              ? { ...s, kickTimestamps: [...s.kickTimestamps, new Date().toISOString()] }
-              : s
+            s.id === sessionId ? { ...s, kickTimestamps: [...s.kickTimestamps, new Date().toISOString()] } : s
+          ),
+        }));
+      },
+
+      undoKick: (sessionId) => {
+        set((state) => ({
+          kickCountSessions: state.kickCountSessions.map((s) =>
+            s.id === sessionId ? { ...s, kickTimestamps: s.kickTimestamps.slice(0, -1) } : s
           ),
         }));
       },
@@ -238,6 +279,7 @@ export const useJourneyStore = create<JourneyStoreState>()(
       },
 
       endContractionSession: (sessionId) => {
+        get().endContraction(sessionId);
         set((state) => ({
           contractionSessions: state.contractionSessions.map((s) =>
             s.id === sessionId ? { ...s, endedAt: new Date().toISOString() } : s
@@ -245,43 +287,83 @@ export const useJourneyStore = create<JourneyStoreState>()(
         }));
       },
 
-      purchaseJourneyPass: (journeyId) => {
-        set((state) => ({ entitlement: mockPurchaseJourneyPass(state.entitlement, journeyId) }));
+      addWorkoutSession: (session) => {
+        set((state) => ({ workoutSessions: [...state.workoutSessions, { ...session, id: generateId() }] }));
       },
 
-      activateSubscription: () => {
-        set((state) => ({ entitlement: mockActivateSubscription(state.entitlement) }));
-      },
+      setReminders: (reminders) => set({ reminders }),
+      markReviewRequested: () => set({ hasRequestedReview: true }),
+      acknowledgeSafety: () => set({ safetyAcknowledgedAt: new Date().toISOString() }),
 
-      deactivateSubscription: () => {
-        set((state) => ({ entitlement: mockDeactivateSubscription(state.entitlement) }));
-      },
-
-      activeJourney: () => {
+      applyStoreSnapshot: (snapshot) => {
         const state = get();
-        return state.journeys.find((j) => j.id === state.activeJourneyId) ?? null;
+        const active = state.journeys.find((j) => j.id === state.activeJourneyId) ?? null;
+        const entitlement = reconcileEntitlement(
+          state.entitlement,
+          snapshot,
+          active,
+          new Date(),
+          APP_CONFIG.journeyPassRestoreWindowMonths
+        );
+        if (entitlement !== state.entitlement) set({ entitlement });
       },
 
-      archivedJourneys: () => {
-        return get()
-          .journeys.filter((j) => j.status === 'archived')
-          .sort((a, b) => (b.archivedAt ?? '').localeCompare(a.archivedAt ?? ''));
+      mockPurchaseJourneyPass: (journeyId) => {
+        set((state) => ({ entitlement: mockPurchaseJourneyPass(state.entitlement, journeyId, new Date()) }));
+      },
+
+      mockSetSubscription: (active) => {
+        set((state) => ({ entitlement: mockSetSubscription(state.entitlement, active) }));
+      },
+
+      resetAllData: () => {
+        // Purchases live with the Apple ID, not here; "Restore purchases"
+        // brings a Journey Pass / subscription back after a reset.
+        set({ ...initialPersistedState });
       },
     }),
     {
       name: 'prego-posto-workouto-store',
+      version: 2,
       storage: createJSONStorage(() => AsyncStorage),
-      partialize: (state) => ({
+      partialize: (state): PersistedState => ({
         journeys: state.journeys,
         activeJourneyId: state.activeJourneyId,
         dailyCheckIns: state.dailyCheckIns,
         kickCountSessions: state.kickCountSessions,
         contractionSessions: state.contractionSessions,
+        workoutSessions: state.workoutSessions,
         entitlement: state.entitlement,
+        reminders: state.reminders,
+        hasRequestedReview: state.hasRequestedReview,
+        safetyAcknowledgedAt: state.safetyAcknowledgedAt,
       }),
-      onRehydrateStorage: () => (state) => {
-        state?.setHasHydrated(true);
+      migrate: (persisted) => {
+        const raw = (persisted ?? {}) as Partial<PersistedState>;
+        return {
+          ...initialPersistedState,
+          ...raw,
+          workoutSessions: raw.workoutSessions ?? [],
+          reminders: raw.reminders ?? initialReminderSettings,
+          entitlement: migrateEntitlement(raw.entitlement),
+        };
+      },
+      // Called with (undefined, error) if stored data can't be read — still
+      // mark hydrated so the app falls back to an empty store instead of
+      // hanging on the splash screen.
+      onRehydrateStorage: () => () => {
+        useJourneyStore.getState().setHasHydrated(true);
       },
     }
   )
 );
+
+/* Selectors. Each returns a stable reference so zustand doesn't re-render in a loop. */
+
+export function useActiveJourney(): Journey | null {
+  return useJourneyStore((state) => state.journeys.find((j) => j.id === state.activeJourneyId) ?? null);
+}
+
+export function selectActiveJourney(state: PersistedState): Journey | null {
+  return state.journeys.find((j) => j.id === state.activeJourneyId) ?? null;
+}
