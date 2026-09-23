@@ -91,8 +91,8 @@ own before your first build.
    privacy manifest in `app.json` (`ios.privacyManifests`) — double-check
    against RevenueCat's current guidance when you fill it in.
 5. **Export compliance** is pre-answered (`ITSAppUsesNonExemptEncryption = false`).
-6. **Before submitting**, the clinical review in
-   `CONTENT_REVIEW_CHECKLIST.md` must be done — see *Safety framework*.
+6. **Before submitting**, work through `CONTENT_REVIEW_CHECKLIST.md` — see
+   *Safety framework*.
 
 Paywall compliance already in place: live App Store prices (never
 hard-coded in release), **Restore purchases**, auto-renewal disclosure,
@@ -167,13 +167,23 @@ summary, and cross-Journey comparison.
   daily routine only ever contains exercises tagged for the current phase,
   and hard relevance filters (e.g. no scar work without a cesarean, no side
   bends with moderate/severe diastasis) apply to everyone.
+- Disclaimers users actually see: a required "educational, not medical
+  advice — I'll check with my provider, take it easy, and stop if anything
+  feels wrong" acknowledgment before the first Journey; a "Take it easy
+  today" screen before every workout (the timer starts only after "I'm
+  ready"); the standing disclaimer banner; and "suited to your phase"
+  wording rather than claiming exercises are "safe".
 - **All exercise, prescription, article, and red-flag content is AI-drafted
-  placeholder content that has not been clinically reviewed.** It must be
-  reviewed and signed off by a certified pre/postnatal fitness specialist or
-  pelvic floor PT (and an OB/midwife for red flags) using
-  `CONTENT_REVIEW_CHECKLIST.md` before real users see it. Dev builds show a
-  red banner as a reminder. App Review scrutinizes health claims (guideline
-  1.4.1).
+  and has not been clinically reviewed.** A clinician review isn't a legal
+  or App Store requirement for a general-wellness fitness app, and the
+  disclaimers above lower the risk, but they don't replace accurate content:
+  a disclaimer won't help if a warning sign is missing or an exercise is
+  tagged for the wrong week. At minimum, check every item against published
+  guidance (ACOG, CDC "Hear Her" warning signs, NHS) using
+  `CONTENT_REVIEW_CHECKLIST.md`. A one-off paid review by a pre/postnatal
+  specialist or pelvic floor PT is strongly recommended, especially for
+  the red-flag list. Dev builds show a red banner as a reminder. App Review
+  looks more closely at health claims (guideline 1.4.1).
 
 ## What's been verified, and where
 
@@ -204,7 +214,7 @@ RevenueCat in a TestFlight build.
 
 ## Known gaps / next steps
 
-- Clinical review of all content (above) — the one hard blocker for launch.
+- Content check against published guidance, ideally a clinician review (see *Safety framework*).
 - Real commissioned anatomical illustrations (the SVG rig is a geometric
   placeholder; swap shapes in `anatomy/muscleGeometry.ts`, keyed by muscle).
 - Dark mode (the app is currently locked to light appearance).

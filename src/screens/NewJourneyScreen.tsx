@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { SymbolView } from 'expo-symbols';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { addDays, addMonths, addWeeks, format, startOfDay } from 'date-fns';
 import type { RootStackScreenProps } from '../navigation/types';
@@ -8,6 +9,7 @@ import { needsRenewalPrompt } from '../premium/entitlements';
 import { Card, Chip, Muted, PrimaryButton, ScreenContainer, SectionTitle } from '../components/Basics';
 import { DisclaimerBanner } from '../components/DisclaimerBanner';
 import { PREGNANCY_LENGTH_DAYS } from '../utils/pregnancyDates';
+import { haptics } from '../utils/haptics';
 import { colors, radii, spacing, typography } from '../theme/theme';
 
 type Props = RootStackScreenProps<'NewJourney'>;
@@ -19,6 +21,10 @@ export function NewJourneyScreen({ navigation, route }: Props) {
   const startNewJourney = useJourneyStore((state) => state.startNewJourney);
   const setEstimatedDueDate = useJourneyStore((state) => state.setEstimatedDueDate);
   const hasActiveJourney = useJourneyStore((state) => !!state.activeJourneyId);
+  const alreadyAcknowledged = useJourneyStore((state) => !!state.safetyAcknowledgedAt);
+  const acknowledgeSafety = useJourneyStore((state) => state.acknowledgeSafety);
+  const needsAcknowledgment = !updateJourneyId && !alreadyAcknowledged;
+  const [acknowledged, setAcknowledged] = useState(false);
 
   const today = startOfDay(new Date());
   const [mode, setMode] = useState<Mode>('due_date');
@@ -44,6 +50,7 @@ export function NewJourneyScreen({ navigation, route }: Props) {
   }
 
   function handleContinue() {
+    if (needsAcknowledgment) acknowledgeSafety();
     const displayName = name.trim() || undefined;
     if (updateJourneyId) {
       setEstimatedDueDate(updateJourneyId, startOfDay(computedDueDate).toISOString());
@@ -151,7 +158,38 @@ export function NewJourneyScreen({ navigation, route }: Props) {
         </Card>
       ) : null}
 
-      <PrimaryButton label={updateJourneyId ? 'Save due date' : 'Begin my Journey'} onPress={handleContinue} />
+      {needsAcknowledgment ? (
+        <Card style={styles.ackCard}>
+          <SectionTitle>Before you begin</SectionTitle>
+          <Muted>
+            Prego Posto is for general education and gentle fitness. It isn’t medical advice, and its exercises haven’t
+            been tailored to you. Every pregnancy and recovery is different.
+          </Muted>
+          <Pressable
+            onPress={() => {
+              haptics.selection();
+              setAcknowledged((v) => !v);
+            }}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: acknowledged }}
+            style={styles.checkRow}
+          >
+            <View style={[styles.checkbox, acknowledged && styles.checkboxChecked]}>
+              {acknowledged ? <SymbolView name="checkmark" size={16} tintColor="#fff" /> : null}
+            </View>
+            <Text style={styles.checkLabel}>
+              I understand. I’ll check with my OB, midwife, or physical therapist before starting or changing exercise,
+              take it easy, and stop if anything feels wrong.
+            </Text>
+          </Pressable>
+        </Card>
+      ) : null}
+
+      <PrimaryButton
+        label={updateJourneyId ? 'Save due date' : 'Begin my Journey'}
+        onPress={handleContinue}
+        disabled={needsAcknowledgment && !acknowledged}
+      />
       <DisclaimerBanner compact />
     </ScreenContainer>
   );
@@ -173,4 +211,17 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   note: { ...typography.caption, color: colors.warning, lineHeight: 18 },
+  ackCard: { borderColor: colors.primary, borderWidth: 1 },
+  checkRow: { flexDirection: 'row', gap: spacing.md, alignItems: 'flex-start', paddingVertical: spacing.xs },
+  checkbox: {
+    width: 26,
+    height: 26,
+    borderRadius: radii.sm,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxChecked: { backgroundColor: colors.primary },
+  checkLabel: { ...typography.body, flex: 1, color: colors.text, lineHeight: 21 },
 });

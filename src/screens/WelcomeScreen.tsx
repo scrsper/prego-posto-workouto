@@ -43,7 +43,7 @@ export function WelcomeScreen({ navigation }: Props) {
         <Muted style={styles.center}>
           {isReturning
             ? 'Ready for another Journey? Everything from before is safe and waiting whenever you want to look back.'
-            : 'Safe, gentle movement from pregnancy through your first year postpartum.'}
+            : 'Gentle, guided movement from pregnancy through your first year postpartum.'}
         </Muted>
       </View>
 

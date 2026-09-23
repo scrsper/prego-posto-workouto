@@ -45,6 +45,8 @@ interface PersistedState {
   entitlement: EntitlementState;
   reminders: ReminderSettings;
   hasRequestedReview: boolean;
+  /** When the user accepted the "educational, not medical advice" acknowledgment. */
+  safetyAcknowledgedAt: string | null;
 }
 
 const initialPersistedState: PersistedState = {
@@ -57,6 +59,7 @@ const initialPersistedState: PersistedState = {
   entitlement: initialEntitlementState,
   reminders: initialReminderSettings,
   hasRequestedReview: false,
+  safetyAcknowledgedAt: null,
 };
 
 interface JourneyStoreState extends PersistedState {
@@ -91,6 +94,7 @@ interface JourneyStoreState extends PersistedState {
 
   setReminders: (reminders: ReminderSettings) => void;
   markReviewRequested: () => void;
+  acknowledgeSafety: () => void;
 
   applyStoreSnapshot: (snapshot: StoreSnapshot) => void;
   mockPurchaseJourneyPass: (journeyId: string) => void;
@@ -289,6 +293,7 @@ export const useJourneyStore = create<JourneyStoreState>()(
 
       setReminders: (reminders) => set({ reminders }),
       markReviewRequested: () => set({ hasRequestedReview: true }),
+      acknowledgeSafety: () => set({ safetyAcknowledgedAt: new Date().toISOString() }),
 
       applyStoreSnapshot: (snapshot) => {
         const state = get();
@@ -331,6 +336,7 @@ export const useJourneyStore = create<JourneyStoreState>()(
         entitlement: state.entitlement,
         reminders: state.reminders,
         hasRequestedReview: state.hasRequestedReview,
+        safetyAcknowledgedAt: state.safetyAcknowledgedAt,
       }),
       migrate: (persisted) => {
         const raw = (persisted ?? {}) as Partial<PersistedState>;

@@ -82,7 +82,9 @@ export function WorkoutPlayerScreen({ route, navigation }: Props) {
   const [stepIndex, setStepIndex] = useState(0);
   const [segmentStart, setSegmentStart] = useState(() => Date.now());
   const [bankedSeconds, setBankedSeconds] = useState(0);
-  const [paused, setPaused] = useState(false);
+  // Starts paused behind the "before you start" screen; the timer begins on "I'm ready".
+  const [started, setStarted] = useState(false);
+  const [paused, setPaused] = useState(true);
   const [now, setNow] = useState(() => Date.now());
   const [activeSeconds, setActiveSeconds] = useState(0);
   const [completedIds, setCompletedIds] = useState<string[]>([]);
@@ -141,12 +143,6 @@ export function WorkoutPlayerScreen({ route, navigation }: Props) {
     [steps, stepIndex, exercises, say]
   );
 
-  // Announce the very first step.
-  useEffect(() => {
-    if (steps[0]) say(stepAnnouncement(steps[0], exercises[0]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // Auto-advance when the current step's time is up.
   useEffect(() => {
     if (!finished && !paused && step && remaining <= 0) goToStep(stepIndex + 1, step.durationSeconds);
@@ -186,6 +182,13 @@ export function WorkoutPlayerScreen({ route, navigation }: Props) {
     });
     return () => subscription.remove();
   }, []);
+
+  function begin() {
+    haptics.firm();
+    setStarted(true);
+    resume();
+    if (steps[0]) say(stepAnnouncement(steps[0], exercises[0]));
+  }
 
   function endEarly(presetFeeling: WorkoutFeeling | null) {
     setActiveSeconds((total) => total + elapsed);
@@ -246,6 +249,43 @@ export function WorkoutPlayerScreen({ route, navigation }: Props) {
           <Muted>There’s nothing in this workout.</Muted>
           <SecondaryButton label="Close" onPress={() => navigation.goBack()} />
         </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!started) {
+    const easyDay = [
+      'Go at a pace where you can still talk comfortably.',
+      'Skip or shorten anything that doesn’t feel right today — fewer reps is fine.',
+      'Stay hydrated, avoid overheating, and don’t hold your breath.',
+      'Stop right away for pain, dizziness, bleeding, leaking fluid, contractions, or pelvic pressure.',
+    ];
+    return (
+      <SafeAreaView style={styles.container}>
+        <ScrollView contentContainerStyle={styles.summary}>
+          <SymbolView name="leaf.fill" size={48} tintColor={colors.success} style={{ width: 48, height: 48, alignSelf: 'center' }} />
+          <Text style={styles.summaryTitle} accessibilityRole="header">
+            Take it easy today
+          </Text>
+          <Muted style={{ textAlign: 'center' }}>
+            {route.params.title} · {exercises.length} {exercises.length === 1 ? 'exercise' : 'exercises'}
+          </Muted>
+          <View style={styles.instructions}>
+            {easyDay.map((line) => (
+              <View key={line} style={styles.bulletRow}>
+                <SymbolView name="checkmark.circle" size={18} tintColor={colors.primary} style={{ width: 20, height: 20 }} />
+                <Text style={[styles.instructionLine, { flex: 1 }]}>{line}</Text>
+              </View>
+            ))}
+          </View>
+          <Muted style={{ textAlign: 'center' }}>
+            {journey?.clearanceAcknowledgment
+              ? 'Follow any limits your provider gave you — they come before anything in this app.'
+              : 'If you haven’t yet, check with your OB, midwife, or physical therapist that this kind of exercise is right for you.'}
+          </Muted>
+          <PrimaryButton label="I’m ready" icon="play.fill" onPress={begin} />
+          <LinkButton label="Not today" color={colors.textMuted} onPress={() => navigation.goBack()} />
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -464,6 +504,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   instructionLine: { ...typography.body, color: colors.text, lineHeight: 21 },
+  bulletRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' },
   modifyNote: { ...typography.caption, color: colors.warning, marginTop: spacing.xs, lineHeight: 18 },
   stopNote: { ...typography.caption, color: colors.danger, textAlign: 'center', lineHeight: 18 },
   controls: {

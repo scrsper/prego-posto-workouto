@@ -136,7 +136,7 @@ export function HomeScreen({ navigation }: MainTabScreenProps<'Today'>) {
         ) : (
           <>
             <Muted>
-              {routine.length} exercises · about {minutes} min · safe-tagged for {phaseLabel(phase).toLowerCase()}
+              {routine.length} exercises · about {minutes} min · picked for {phaseLabel(phase).toLowerCase()}
             </Muted>
             <View>
               {routine.map((exercise, index) => (

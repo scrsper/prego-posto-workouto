@@ -9,7 +9,7 @@ export function SafetyTag({ safe, phaseLabel }: { safe: boolean; phaseLabel: str
   return (
     <View style={[styles.pill, safe ? styles.pillSafe : styles.pillCaution]}>
       <Text style={[styles.pillText, safe ? styles.pillTextSafe : styles.pillTextCaution]}>
-        {safe ? `✓ Safe for ${phaseLabel}` : `Check with your provider for ${phaseLabel}`}
+        {safe ? `✓ Suited to ${phaseLabel}` : `Check with your provider for ${phaseLabel}`}
       </Text>
     </View>
   );
